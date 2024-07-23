@@ -9,6 +9,7 @@ CallbackSlot<void(const EstimationFrame::ConstPtr& estimated_frame)> IMUStateIni
 
 CallbackSlot<void(const double, const cv::Mat&)> OdometryEstimationCallbacks::on_insert_image;
 CallbackSlot<void(const double, const Eigen::Vector3d&, const Eigen::Vector3d&)> OdometryEstimationCallbacks::on_insert_imu;
+CallbackSlot<void(const double, const double)> OdometryEstimationCallbacks::on_insert_twist;
 CallbackSlot<void(const PreprocessedFrame::Ptr& frame)> OdometryEstimationCallbacks::on_insert_frame;
 
 CallbackSlot<void(const EstimationFrame::ConstPtr&)> OdometryEstimationCallbacks::on_new_frame;

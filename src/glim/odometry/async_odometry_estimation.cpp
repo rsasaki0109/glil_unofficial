@@ -30,6 +30,12 @@ void AsyncOdometryEstimation::insert_imu(const double stamp, const Eigen::Vector
   input_imu_queue.push_back(imu_data);
 }
 
+void AsyncOdometryEstimation::insert_twist(const double stamp, const double linear_vel) {
+  Eigen::Matrix<double, 2, 1> twist;
+  twist << stamp, linear_vel;
+  input_twist_queue.push_back(twist);
+}
+
 void AsyncOdometryEstimation::insert_frame(const PreprocessedFrame::Ptr& frame) {
   input_frame_queue.push_back(frame);
 }
@@ -52,11 +58,13 @@ void AsyncOdometryEstimation::get_results(std::vector<EstimationFrame::ConstPtr>
 
 void AsyncOdometryEstimation::run() {
   double last_imu_time = enable_imu ? 0.0 : std::numeric_limits<double>::max();
+  double last_twist_time = std::numeric_limits<double>::max();
   std::deque<std::pair<double, cv::Mat>> images;
   std::deque<PreprocessedFrame::Ptr> raw_frames;
 
   while (!kill_switch) {
     auto imu_frames = input_imu_queue.get_all_and_clear();
+    auto twist_frames = input_twist_queue.get_all_and_clear();
     auto new_images = input_image_queue.get_all_and_clear();
     auto new_raw_frames = input_frame_queue.get_all_and_clear();
 
@@ -64,7 +72,7 @@ void AsyncOdometryEstimation::run() {
     raw_frames.insert(raw_frames.end(), new_raw_frames.begin(), new_raw_frames.end());
     internal_frame_queue_size = raw_frames.size();
 
-    if (images.empty() && imu_frames.empty() && raw_frames.empty()) {
+    if (images.empty() && imu_frames.empty() && twist_frames.empty() && raw_frames.empty()) {
       if (end_of_sequence) {
         break;
       }
@@ -80,6 +88,14 @@ void AsyncOdometryEstimation::run() {
       odometry_estimation->insert_imu(stamp, linear_acc, angular_vel);
 
       last_imu_time = stamp;
+    }
+
+    for (const auto& twist : twist_frames) {
+      const double stamp = twist[0];
+      const double linear_vel = twist[1];
+      odometry_estimation->insert_twist(stamp, linear_vel);
+
+      last_twist_time = stamp;
     }
 
     while (!images.empty()) {

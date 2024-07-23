@@ -60,6 +60,13 @@ struct OdometryEstimationCallbacks {
   static CallbackSlot<void(const double stamp, const Eigen::Vector3d& linear_acc, const Eigen::Vector3d& angular_vel)> on_insert_imu;
 
   /**
+   * @brief Twist input callback
+   * @param stamp        Timestamp
+   * @param linear_vel   Linear velocity
+   */
+  static CallbackSlot<void(const double stamp, const double linear_vel)> on_insert_twist;
+
+  /**
    * @brief PointCloud input callback
    * @param frame  Preprocessed point cloud frame
    */

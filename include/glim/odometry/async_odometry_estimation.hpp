@@ -47,6 +47,13 @@ public:
   void insert_imu(const double stamp, const Eigen::Vector3d& linear_acc, const Eigen::Vector3d& angular_vel);
 
   /**
+   * @brief Insert an wheel velocity into the odometry estimation
+   * @param stamp         Timestamp
+   * @param vel           Wheel velocity
+   */
+  void insert_twist(const double stamp, const double vel);
+
+  /**
    * @brief Insert a preprocessed point cloud into odometry estimation
    * @param frame  Preprocessed point cloud
    */
@@ -80,6 +87,7 @@ private:
   // Input queues
   ConcurrentVector<std::pair<double, cv::Mat>> input_image_queue;
   ConcurrentVector<Eigen::Matrix<double, 7, 1>> input_imu_queue;
+  ConcurrentVector<Eigen::Matrix<double, 2, 1>> input_twist_queue;
   ConcurrentVector<PreprocessedFrame::Ptr> input_frame_queue;
 
   // Output queues

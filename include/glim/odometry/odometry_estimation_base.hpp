@@ -43,6 +43,13 @@ public:
   virtual void insert_imu(const double stamp, const Eigen::Vector3d& linear_acc, const Eigen::Vector3d& angular_vel);
 
   /**
+   * @brief Insert an wheel velocity
+   * @param stamp        Timestamp
+   * @param linear_vel   Linear velocity
+   */
+  virtual void insert_twist(const double stamp, const double linear_vel);
+
+  /**
    * @brief Insert a point cloud
    * @param frame                       Preprocessed point cloud
    * @param marginalized_states         [out] Marginalized estimation frames

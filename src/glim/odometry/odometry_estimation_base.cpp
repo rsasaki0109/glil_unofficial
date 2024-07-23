@@ -18,6 +18,10 @@ void OdometryEstimationBase::insert_imu(const double stamp, const Eigen::Vector3
   Callbacks::on_insert_imu(stamp, linear_acc, angular_vel);
 }
 
+void OdometryEstimationBase::insert_twist(const double stamp, const double linear_vel) {
+  Callbacks::on_insert_twist(stamp, linear_vel);
+}
+
 EstimationFrame::ConstPtr OdometryEstimationBase::insert_frame(const PreprocessedFrame::Ptr& frame, std::vector<EstimationFrame::ConstPtr>& marginalized_states) {
   Callbacks::on_insert_frame(frame);
   return nullptr;
