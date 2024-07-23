@@ -3,9 +3,9 @@ GLIM is tested on Ubuntu 22.04 / 24.04 with CUDA 12.2, and NVIDIA Jetson Orin (J
 
 ## Install from source
 
-### Common dependencies
+### 1. Install common dependencies
 
-#### From source
+#### 1.A. From source
 
 ```bash
 # Install dependencies
@@ -46,7 +46,7 @@ sudo make install
 sudo ldconfig
 ```
 
-#### From [PPA](https://koide3.github.io/ppa/) [Ubuntu 24.04 , 22.04, 20.04 / AMD64, ARM64]
+#### 1.B. From [PPA](https://koide3.github.io/ppa/) [Ubuntu 24.04 , 22.04, 20.04 / AMD64, ARM64]
 
 ##### Prequiresite
 
@@ -88,7 +88,7 @@ sudo apt install -y libgtsam-points-cuda-12.5-dev  # with CUDA 12.5
 ```
 
 
-### Install GLIM for ROS1
+### 2. Install GLIM for ROS1
 
 ```bash
 cd ~/catkin_ws/src
@@ -105,7 +105,7 @@ catkin_make
 #   -DBUILD_WITH_MARCH_NATIVE=OFF
 ```
 
-### Install GLIM for ROS2
+### 2. Install GLIM for ROS2
 ```bash
 cd ~/ros2_ws/src
 git clone https://github.com/koide3/glim
