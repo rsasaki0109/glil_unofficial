@@ -15,6 +15,7 @@
     ],
     // Topics
     "imu_topic": "/os_cloud_node/imu",
+    "twist_topic": "/twist",
     "points_topic": "/os_cloud_node/points",
     "image_topic": "/image"
   }
