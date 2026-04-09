@@ -1,5 +1,8 @@
 #include <glil/viewer/standard_viewer.hpp>
 
+#include <algorithm>
+#include <cmath>
+
 #include <spdlog/spdlog.h>
 
 #include <gtsam/inference/Symbol.h>
@@ -41,15 +44,23 @@ StandardViewer::StandardViewer() : logger(create_module_logger("viewer")) {
   show_odometry_keyframes = true;
   show_submaps = true;
   show_factors = true;
+  show_graph_optimization_deltas = true;
 
   show_odometry_status = false;
+  show_graph_optimization_status = false;
   last_id = last_num_points = 0;
   last_point_stamps = std::make_pair(0.0, 0.0);
   last_imu_vel.setZero();
   last_imu_bias.setZero();
+  last_graph_update_num_values = 0;
+  last_graph_update_num_factors = 0;
+  last_graph_moved_submaps = 0;
+  last_graph_max_translation_delta = 0.0f;
+  last_graph_max_rotation_delta_deg = 0.0f;
 
   z_range = config.param("standard_viewer", "default_z_range", Eigen::Vector2d(-2.0, 4.0)).cast<float>();
   auto_z_range << 0.0f, 0.0f;
+  graph_optimization_delta_min_trans = config.param("standard_viewer", "graph_optimization_delta_min_trans", 0.05);
 
   trajectory.reset(new TrajectoryManager);
 
@@ -89,11 +100,99 @@ Eigen::Isometry3f StandardViewer::resolve_pose(const EstimationFrame::ConstPtr& 
   }
 }
 
-void StandardViewer::set_callbacks() {
-  using std::placeholders::_1;
-  using std::placeholders::_2;
-  using std::placeholders::_3;
+float StandardViewer::rotation_delta_deg(const Eigen::Isometry3f& before, const Eigen::Isometry3f& after) {
+  constexpr float rad_to_deg = 180.0f / 3.14159265358979323846f;
+  const Eigen::Matrix3f delta = before.linear().transpose() * after.linear();
+  return Eigen::AngleAxisf(delta).angle() * rad_to_deg;
+}
 
+std::vector<unsigned int> StandardViewer::collect_global_factor_indices(const size_t num_submaps) const {
+  std::vector<unsigned int> factor_indices;
+  factor_indices.reserve(global_between_factors.size() * 2);
+
+  for (const auto& factor : global_between_factors) {
+    if (factor.first >= 0 && factor.second >= 0 && static_cast<size_t>(factor.first) < num_submaps && static_cast<size_t>(factor.second) < num_submaps) {
+      factor_indices.push_back(factor.first);
+      factor_indices.push_back(factor.second);
+    }
+  }
+
+  return factor_indices;
+}
+
+StandardViewer::GraphOptimizationUpdate StandardViewer::create_graph_optimization_update(
+  const std::vector<int>& submap_ids,
+  const std::vector<Eigen::Isometry3f>& submap_poses) {
+  GraphOptimizationUpdate update;
+  update.submap_positions.resize(submap_ids.size());
+
+  for (size_t i = 0; i < submap_ids.size(); ++i) {
+    const int submap_id = submap_ids[i];
+    const size_t submap_index = static_cast<size_t>(submap_id);
+    update.submap_positions[i] = submap_poses[i].translation();
+
+    if (previous_submap_poses.size() <= submap_index) {
+      previous_submap_poses.resize(submap_index + 1, Eigen::Isometry3f::Identity());
+      previous_submap_poses[submap_index] = submap_poses[i];
+    }
+
+    const Eigen::Isometry3f previous_pose = previous_submap_poses[submap_index];
+    const float translation_delta = (submap_poses[i].translation() - previous_pose.translation()).norm();
+    const float rotation_delta = rotation_delta_deg(previous_pose, submap_poses[i]);
+
+    update.max_translation_delta = std::max(update.max_translation_delta, translation_delta);
+    update.max_rotation_delta_deg = std::max(update.max_rotation_delta_deg, rotation_delta);
+    if (translation_delta >= graph_optimization_delta_min_trans) {
+      update.delta_lines.push_back(previous_pose.translation());
+      update.delta_lines.push_back(submap_poses[i].translation());
+      update.moved_submaps++;
+    }
+
+    previous_submap_poses[submap_index] = submap_poses[i];
+
+    auto_z_range[0] = std::min<float>(auto_z_range[0], submap_poses[i].translation().z());
+    auto_z_range[1] = std::max<float>(auto_z_range[1], submap_poses[i].translation().z());
+  }
+
+  update.factor_indices = collect_global_factor_indices(submap_ids.size());
+  return update;
+}
+
+void StandardViewer::update_submap_drawables(const std::vector<int>& submap_ids, const std::vector<Eigen::Isometry3f>& submap_poses) {
+  auto viewer = guik::LightViewer::instance();
+
+  for (size_t i = 0; i < submap_ids.size(); ++i) {
+    const std::string submap_name = "submap_" + std::to_string(submap_ids[i]);
+    auto drawable = viewer->find_drawable(submap_name);
+    if (drawable.first) {
+      drawable.first->add("model_matrix", submap_poses[i].matrix());
+    }
+
+    viewer->update_drawable(
+      "submap_coord_" + std::to_string(submap_ids[i]),
+      glk::Primitives::coordinate_system(),
+      guik::VertexColor(submap_poses[i]));
+  }
+}
+
+void StandardViewer::update_graph_optimization_drawables(const GraphOptimizationUpdate& update) {
+  auto viewer = guik::LightViewer::instance();
+
+  viewer->update_drawable("factors", std::make_shared<glk::ThinLines>(update.submap_positions, update.factor_indices), guik::FlatGreen());
+
+  auto delta_drawable = std::make_shared<glk::ThinLines>(update.delta_lines);
+  delta_drawable->set_line_width(2.0f);
+  viewer->update_drawable("graph_optimization_deltas", delta_drawable, guik::FlatOrange());
+  viewer->shader_setting().add<Eigen::Vector2f>("z_range", auto_z_range + z_range);
+}
+
+void StandardViewer::update_graph_optimization_status(const GraphOptimizationUpdate& update) {
+  last_graph_moved_submaps = update.moved_submaps;
+  last_graph_max_translation_delta = update.max_translation_delta;
+  last_graph_max_rotation_delta_deg = update.max_rotation_delta_deg;
+}
+
+void StandardViewer::set_callbacks() {
   /*** Odometry callbacks ***/
 
   // IMU state initialization update callback
@@ -365,44 +464,18 @@ void StandardViewer::set_callbacks() {
 
   // Update submaps callback
   GlobalMappingCallbacks::on_update_submaps.add([this](const std::vector<SubMap::Ptr>& submaps) {
-    const SubMap::ConstPtr latest_submap = submaps.back();
-
     std::vector<int> submap_ids(submaps.size());
     std::vector<Eigen::Isometry3f> submap_poses(submaps.size());
-    for (int i = 0; i < submaps.size(); i++) {
+    for (size_t i = 0; i < submaps.size(); ++i) {
       submap_ids[i] = submaps[i]->id;
       submap_poses[i] = submaps[i]->T_world_origin.cast<float>();
     }
 
-    invoke([this, latest_submap, submap_ids, submap_poses] {
-      auto viewer = guik::LightViewer::instance();
-
-      std::vector<Eigen::Vector3f> submap_positions(submap_ids.size());
-
-      for (int i = 0; i < submap_ids.size(); i++) {
-        submap_positions[i] = submap_poses[i].translation();
-
-        auto_z_range[0] = std::min<float>(auto_z_range[0], submap_poses[i].translation().z());
-        auto_z_range[1] = std::max<float>(auto_z_range[1], submap_poses[i].translation().z());
-
-        auto drawable = viewer->find_drawable("submap_" + std::to_string(submap_ids[i]));
-        if (drawable.first) {
-          drawable.first->add("model_matrix", submap_poses[i].matrix());
-        }
-        viewer->update_drawable("submap_coord_" + std::to_string(submap_ids[i]), glk::Primitives::coordinate_system(), guik::VertexColor(submap_poses[i]));
-      }
-
-      std::vector<unsigned int> indices;
-      indices.reserve(global_between_factors.size() * 2);
-      for (const auto& factor : global_between_factors) {
-        if (factor.first < submap_ids.size() && factor.second < submap_ids.size()) {
-          indices.push_back(factor.first);
-          indices.push_back(factor.second);
-        }
-      }
-
-      viewer->update_drawable("factors", std::make_shared<glk::ThinLines>(submap_positions, indices), guik::FlatGreen());
-      viewer->shader_setting().add<Eigen::Vector2f>("z_range", auto_z_range + z_range);
+    invoke([this, submap_ids, submap_poses] {
+      const GraphOptimizationUpdate update = create_graph_optimization_update(submap_ids, submap_poses);
+      update_submap_drawables(submap_ids, submap_poses);
+      update_graph_optimization_drawables(update);
+      update_graph_optimization_status(update);
     });
   });
 
@@ -430,6 +503,10 @@ void StandardViewer::set_callbacks() {
   GlobalMappingCallbacks::on_smoother_update_result.add([this](gtsam_points::ISAM2Ext& isam2, const gtsam_points::ISAM2ResultExt& result) {
     logger->debug("--- iSAM2 update ({} values / {} factors) ---", result.num_values, result.num_factors);
     logger->debug(result.to_string());
+    invoke([this, num_values = result.num_values, num_factors = result.num_factors] {
+      last_graph_update_num_values = num_values;
+      last_graph_update_num_factors = num_factors;
+    });
   });
 }
 
@@ -502,6 +579,10 @@ bool StandardViewer::drawable_filter(const std::string& name) {
     return false;
   }
 
+  if (!show_graph_optimization_deltas && name == "graph_optimization_deltas") {
+    return false;
+  }
+
   return true;
 }
 
@@ -555,14 +636,20 @@ void StandardViewer::drawable_selection() {
   ImGui::Checkbox("keyframes", &show_odometry_keyframes);
 
   ImGui::Separator();
-  bool show_mapping = show_submaps || show_factors;
+  bool show_mapping = show_submaps || show_factors || show_graph_optimization_deltas;
   if (ImGui::Checkbox("mapping", &show_mapping)) {
-    show_submaps = show_factors = show_mapping;
+    show_submaps = show_factors = show_graph_optimization_deltas = show_mapping;
   }
 
   ImGui::Checkbox("submaps", &show_submaps);
   ImGui::SameLine();
   ImGui::Checkbox("factors", &show_factors);
+  ImGui::SameLine();
+  ImGui::Checkbox("opt_deltas", &show_graph_optimization_deltas);
+  ImGui::SameLine();
+  if (ImGui::Button("Graph")) {
+    show_graph_optimization_status = true;
+  }
 
   ImGui::Separator();
   if (ImGui::DragFloatRange2("z_range", &z_range[0], &z_range[1], 0.1f, -100.0f, 100.0f)) {
@@ -578,6 +665,17 @@ void StandardViewer::drawable_selection() {
     ImGui::Text("stamp:%.3f ~ %.3f", last_point_stamps.first, last_point_stamps.second);
     ImGui::Text("vel:%.3f %.3f %.3f", last_imu_vel[0], last_imu_vel[1], last_imu_vel[2]);
     ImGui::Text("bias:%.3f %.3f %.3f %.3f %.3f %.3f", last_imu_bias[0], last_imu_bias[1], last_imu_bias[2], last_imu_bias[3], last_imu_bias[4], last_imu_bias[5]);
+    ImGui::End();
+  }
+
+  if (show_graph_optimization_status) {
+    ImGui::Begin("graph optimization", &show_graph_optimization_status, ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Text("values:%d", last_graph_update_num_values);
+    ImGui::Text("factors:%d", last_graph_update_num_factors);
+    ImGui::Text("moved_submaps:%d", last_graph_moved_submaps);
+    ImGui::Text("max_delta_trans:%.3f m", last_graph_max_translation_delta);
+    ImGui::Text("max_delta_rot:%.3f deg", last_graph_max_rotation_delta_deg);
+    ImGui::Text("delta_min_trans:%.3f m", graph_optimization_delta_min_trans);
     ImGui::End();
   }
 }
