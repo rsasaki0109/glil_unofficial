@@ -1,0 +1,53 @@
+{
+  /*** GLIL: CPU-based tightly coupled LiDAR-IMU odometry with coreset downsampling ***
+  // Reference: Koide et al., "Tightly Coupled Range Inertial Odometry and Mapping
+  //            with Exact Point Cloud Downsampling", ICRA 2025
+  //
+  // voxel_resolution              : Resolution for VGICP voxels
+  // voxelmap_levels               : Multi-resolution voxelmap levels
+  // voxelmap_scaling_factor       : Multi-resolution voxelmap scaling factor
+  // full_connection_window_size   : Connect latest frame with past N frames
+  // keyframe_update_strategy      : "OVERLAP" / "DISPLACEMENT"
+  // max_num_keyframes             : Maximum number of keyframes
+  // occupancy_grid_resolution     : FastOccupancyGrid resolution for overlap computation
+  // coreset_relinearize_thresh_*  : Deferred sampling thresholds
+  // coreset_target_size           : Target number of coreset points
+  // coreset_num_clusters          : Number of clusters for Fast-Caratheodory
+  */
+  "odometry_estimation": {
+    "so_name": "libodometry_estimation_glil.so",
+    // Initialization params
+    "initialization_mode": "LOOSE",
+    "initialization_window_size": 1.0,
+    "init_pose_damping_scale": 1e10,
+    // Optimization params
+    "smoother_lag": 5.0,
+    "use_isam2_dogleg": false,
+    "isam2_relinearize_skip": 1,
+    "isam2_relinearize_thresh": 0.1,
+    "fix_imu_bias": false,
+    // Voxel params
+    "voxel_resolution": 0.5,
+    "voxelmap_levels": 2,
+    "voxelmap_scaling_factor": 2.0,
+    "full_connection_window_size": 3,
+    // Keyframe params
+    "keyframe_update_strategy": "DISPLACEMENT",
+    "max_num_keyframes": 10,
+    "keyframe_min_overlap": 0.01,
+    "keyframe_max_overlap": 0.7,
+    "keyframe_delta_trans": 1.0,
+    "keyframe_delta_rot": 0.25,
+    // FastOccupancyGrid
+    "occupancy_grid_resolution": 0.5,
+    // Coreset params
+    "coreset_relinearize_thresh_trans": 0.25,
+    "coreset_relinearize_thresh_rot": 0.25,
+    "coreset_target_size": 256,
+    "coreset_num_clusters": 64,
+    "save_imu_rate_trajectory": true,
+    "debug_frame_window_start": -1,
+    "debug_frame_window_end": -1,
+    "num_threads": 2
+  }
+}

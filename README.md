@@ -1,17 +1,17 @@
-![GLIM](docs/assets/logo2.png "GLIM Logo")
+![GLIL](docs/assets/logo2.png "GLIL Logo")
 
 ## Introduction
 
-**GLIM** is a versatile and extensible range-based 3D mapping framework.
+**GLIL** is a versatile and extensible range-based 3D mapping framework.
 
-- ***Accuracy:*** GLIM is based on direct multi-scan registration error minimization on factor graphs that enables to accurately retain the consistency of mappint results. GPU acceleration is supported to maximize the mapping speed and quality.
-- ***Easy-to-use:*** GLIM offers an interactive map correction interface that enables the user to manually correct mapping failures and easily refine mapping results.
-- ***Versatility:*** As we eliminated sensor-specific processes, GLIM can be applied to any kind of range sensors including:
+- ***Accuracy:*** GLIL is based on direct multi-scan registration error minimization on factor graphs that enables to accurately retain the consistency of mappint results. GPU acceleration is supported to maximize the mapping speed and quality.
+- ***Easy-to-use:*** GLIL offers an interactive map correction interface that enables the user to manually correct mapping failures and easily refine mapping results.
+- ***Versatility:*** As we eliminated sensor-specific processes, GLIL can be applied to any kind of range sensors including:
     - Spinning-type LiDAR (e.g., Velodyne HDL32e)
     - Non-repetitive scan LiDAR (e.g., Livox Avia)
     - Solid-state LiDAR (e.g., Intel Realsense L515)
     - RGB-D camera (e.g., Microsoft Azure Kinect)
-- ***Extensibility:*** GLIM provides the global callback slot mechanism that allows to access the internal states of the mapping process and insert additional constraints to the factor graph. We also release [glim_ext](https://github.com/koide3/glim_ext) that offers example implementations of several extension functions (e.g., explicit loop detection, LiDAR-Visual-Inertial odometry estimation).
+- ***Extensibility:*** GLIL provides the global callback slot mechanism that allows to access the internal states of the mapping process and insert additional constraints to the factor graph. We also release [glim_ext](https://github.com/koide3/glim_ext) that offers example implementations of several extension functions (e.g., explicit loop detection, LiDAR-Visual-Inertial odometry estimation).
 
 **Documentation: [https://koide3.github.io/glim/](https://koide3.github.io/glim/)**  
 **Docker hub: [koide3/glim_ros1](https://hub.docker.com/repository/docker/koide3/glim_ros1/tags), [koide3/glim_ros2](https://hub.docker.com/repository/docker/koide3/glim_ros2/tags)**  
@@ -51,7 +51,7 @@ Left: Mapping with various range sensors, Right: Outdoor driving test with Livox
 
 ## Estimation modules
 
-GLIM provides several estimation modules to cover use scenarios, from robust and accurate mapping with a GPU to lightweight real-time mapping with a low-specification PC like Raspberry Pi.
+GLIL provides several estimation modules to cover use scenarios, from robust and accurate mapping with a GPU to lightweight real-time mapping with a low-specification PC like Raspberry Pi.
 
 ![modules](docs/assets/module.png)
 

@@ -10,8 +10,8 @@ RUN apt-get update \
 RUN update-alternatives --install /usr/bin/ld ld /usr/bin/ld.lld 50
 
 # without viewer and CUDA
-COPY . /root/glim
-WORKDIR /root/glim/build
+COPY . /root/glil
+WORKDIR /root/glil/build
 RUN CC=clang CXX=clang++ cmake .. \
   -DBUILD_WITH_CUDA=OFF \
   -DBUILD_WITH_VIEWER=OFF \
@@ -20,7 +20,7 @@ RUN CC=clang CXX=clang++ cmake .. \
 RUN make -j$(nproc)
 
 # with viewer
-WORKDIR /root/glim/build
+WORKDIR /root/glil/build
 RUN CC=clang CXX=clang++ cmake .. \
   -DBUILD_WITH_CUDA=OFF \
   -DBUILD_WITH_VIEWER=ON \

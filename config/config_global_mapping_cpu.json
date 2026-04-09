@@ -11,7 +11,7 @@
   */
   "global_mapping": {
     "so_name": "libglobal_mapping.so",
-    "enable_imu": true,
+    "enable_imu": false,
     "enable_optimization": true,
     "init_pose_damping_scale": 1e10,
     // Relative pose factors
