@@ -98,5 +98,6 @@ private:
   std::unique_ptr<gtsam::NonlinearFactorGraph> new_factors;
 
   std::unique_ptr<gtsam_points::ISAM2Ext> isam2;
+  bool isam2_corrupted = false;
 };
 }  // namespace glil

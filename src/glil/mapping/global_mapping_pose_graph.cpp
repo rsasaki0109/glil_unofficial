@@ -420,7 +420,11 @@ void GlobalMappingPoseGraph::loop_detection_task() {
 
 void GlobalMappingPoseGraph::update_submaps() {
   for (int i = 0; i < submaps.size(); i++) {
-    submaps[i]->T_world_origin = Eigen::Isometry3d(isam2->calculateEstimate<gtsam::Pose3>(X(i)).matrix());
+    try {
+      submaps[i]->T_world_origin = Eigen::Isometry3d(isam2->calculateEstimate<gtsam::Pose3>(X(i)).matrix());
+    } catch (std::exception& e) {
+      spdlog::warn("failed to update submap {} pose: {}", i, e.what());
+    }
   }
 }
 

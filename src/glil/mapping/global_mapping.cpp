@@ -116,12 +116,31 @@ void GlobalMapping::insert_submap(const SubMap::Ptr& submap) {
   const int last = current - 1;
   insert_submap(current, submap);
 
+  // If ISAM2 is corrupted, just store the submap with odometry-based pose and return
+  if (isam2_corrupted) {
+    if (current != 0) {
+      const Eigen::Isometry3d T_origin0_endpointR0 = submaps[last]->T_origin_endpoint_R;
+      const Eigen::Isometry3d T_origin1_endpointL1 = submaps[current]->T_origin_endpoint_L;
+      const Eigen::Isometry3d T_endpointR0_endpointL1 = submaps[last]->odom_frames.back()->T_world_sensor().inverse() * submaps[current]->odom_frames.front()->T_world_sensor();
+      const Eigen::Isometry3d T_origin0_origin1 = T_origin0_endpointR0 * T_endpointR0_endpointL1 * T_origin1_endpointL1.inverse();
+      submap->T_world_origin = submaps[last]->T_world_origin * T_origin0_origin1;
+    }
+    Callbacks::on_insert_submap(submap);
+    submap->drop_frame_points();
+    return;
+  }
+
   gtsam::Pose3 current_T_world_submap = gtsam::Pose3::Identity();
   gtsam::Pose3 last_T_world_submap = gtsam::Pose3::Identity();
 
   if (current != 0) {
     if (isam2->valueExists(X(last))) {
-      last_T_world_submap = isam2->calculateEstimate<gtsam::Pose3>(X(last));
+      try {
+        last_T_world_submap = isam2->calculateEstimate<gtsam::Pose3>(X(last));
+      } catch (std::exception& e) {
+        logger->warn("failed to get last submap pose from ISAM2, using cached: {}", e.what());
+        last_T_world_submap = gtsam::Pose3(submaps[last]->T_world_origin.matrix());
+      }
     } else {
       last_T_world_submap = new_values->at<gtsam::Pose3>(X(last));
     }
@@ -202,19 +221,25 @@ void GlobalMapping::insert_submap(const SubMap::Ptr& submap) {
     }
   }
 
-  Callbacks::on_smoother_update(*isam2, *new_factors, *new_values);
-  try {
-    auto result = isam2->update(*new_factors, *new_values);
-    Callbacks::on_smoother_update_result(*isam2, result);
-  } catch (std::exception& e) {
-    logger->error("an exception was caught during global map optimization!!");
-    logger->error(e.what());
+  if (!isam2_corrupted) {
+    Callbacks::on_smoother_update(*isam2, *new_factors, *new_values);
+    try {
+      auto result = isam2->update(*new_factors, *new_values);
+      Callbacks::on_smoother_update_result(*isam2, result);
+    } catch (std::exception& e) {
+      logger->error("an exception was caught during global map optimization!!");
+      logger->error(e.what());
+      logger->error("disabling further ISAM2 updates to prevent cascading failures");
+      isam2_corrupted = true;
+    }
   }
   new_values.reset(new gtsam::Values);
   new_factors.reset(new gtsam::NonlinearFactorGraph);
 
-  update_submaps();
-  Callbacks::on_update_submaps(submaps);
+  if (!isam2_corrupted) {
+    update_submaps();
+    Callbacks::on_update_submaps(submaps);
+  }
 }
 
 void GlobalMapping::insert_submap(int current, const SubMap::Ptr& submap) {
@@ -317,26 +342,41 @@ void GlobalMapping::find_overlapping_submaps(double min_overlap) {
 
   logger->info("new overlapping {} submap pairs found", new_factors.size());
 
-  gtsam::Values new_values;
-  Callbacks::on_smoother_update(*isam2, new_factors, new_values);
-  auto result = isam2->update(new_factors, new_values);
-  Callbacks::on_smoother_update_result(*isam2, result);
+  if (!isam2_corrupted) {
+    gtsam::Values new_values;
+    Callbacks::on_smoother_update(*isam2, new_factors, new_values);
+    try {
+      auto result = isam2->update(new_factors, new_values);
+      Callbacks::on_smoother_update_result(*isam2, result);
+    } catch (std::exception& e) {
+      logger->error("an exception was caught during global map optimization (find_overlapping)!!");
+      logger->error(e.what());
+      isam2_corrupted = true;
+    }
 
-  update_submaps();
-  Callbacks::on_update_submaps(submaps);
+    if (!isam2_corrupted) {
+      update_submaps();
+      Callbacks::on_update_submaps(submaps);
+    }
+  }
 }
 
 void GlobalMapping::optimize() {
-  if (isam2->empty()) {
+  if (isam2_corrupted || isam2->empty()) {
     return;
   }
 
   gtsam::NonlinearFactorGraph new_factors;
   gtsam::Values new_values;
   Callbacks::on_smoother_update(*isam2, new_factors, new_values);
-  auto result = isam2->update(new_factors, new_values);
-
-  Callbacks::on_smoother_update_result(*isam2, result);
+  try {
+    auto result = isam2->update(new_factors, new_values);
+    Callbacks::on_smoother_update_result(*isam2, result);
+  } catch (std::exception& e) {
+    logger->error("an exception was caught during global map final optimization!!");
+    logger->error(e.what());
+    isam2_corrupted = true;
+  }
 
   update_submaps();
   Callbacks::on_update_submaps(submaps);
@@ -435,7 +475,11 @@ std::shared_ptr<gtsam::NonlinearFactorGraph> GlobalMapping::create_matching_cost
 
 void GlobalMapping::update_submaps() {
   for (int i = 0; i < submaps.size(); i++) {
-    submaps[i]->T_world_origin = Eigen::Isometry3d(isam2->calculateEstimate<gtsam::Pose3>(X(i)).matrix());
+    try {
+      submaps[i]->T_world_origin = Eigen::Isometry3d(isam2->calculateEstimate<gtsam::Pose3>(X(i)).matrix());
+    } catch (std::exception& e) {
+      logger->warn("failed to update submap {} pose: {}", i, e.what());
+    }
   }
 }
 
@@ -444,54 +488,43 @@ void GlobalMapping::save(const std::string& path) {
 
   boost::filesystem::create_directories(path);
 
-  gtsam::NonlinearFactorGraph serializable_factors;
-  std::unordered_map<std::string, gtsam::NonlinearFactor::shared_ptr> matching_cost_factors;
+  if (!isam2_corrupted) {
+    gtsam::NonlinearFactorGraph serializable_factors;
+    std::unordered_map<std::string, gtsam::NonlinearFactor::shared_ptr> matching_cost_factors;
 
-  for (const auto& factor : isam2->getFactorsUnsafe()) {
-    bool serializable = !std::dynamic_pointer_cast<gtsam_points::IntegratedMatchingCostFactor>(factor)
+    for (const auto& factor : isam2->getFactorsUnsafe()) {
+      bool serializable = !std::dynamic_pointer_cast<gtsam_points::IntegratedMatchingCostFactor>(factor)
 #ifdef BUILD_GTSAM_POINTS_GPU
-                        && !std::dynamic_pointer_cast<gtsam_points::IntegratedVGICPFactorGPU>(factor)
+                          && !std::dynamic_pointer_cast<gtsam_points::IntegratedVGICPFactorGPU>(factor)
 #endif
-      ;
+        ;
 
-    if (serializable) {
-      serializable_factors.push_back(factor);
-    } else {
-      const gtsam::Symbol symbol0(factor->keys()[0]);
-      const gtsam::Symbol symbol1(factor->keys()[1]);
-      const std::string key = std::to_string(symbol0.index()) + "_" + std::to_string(symbol1.index());
+      if (serializable) {
+        serializable_factors.push_back(factor);
+      } else {
+        const gtsam::Symbol symbol0(factor->keys()[0]);
+        const gtsam::Symbol symbol1(factor->keys()[1]);
+        const std::string key = std::to_string(symbol0.index()) + "_" + std::to_string(symbol1.index());
 
-      matching_cost_factors[key] = factor;
+        matching_cost_factors[key] = factor;
+      }
     }
-  }
 
-  logger->info("serializing factor graph to {}/graph.bin", path);
-  serializeToBinaryFile(serializable_factors, path + "/graph.bin");
-  serializeToBinaryFile(isam2->calculateEstimate(), path + "/values.bin");
+    logger->info("serializing factor graph to {}/graph.bin", path);
+    serializeToBinaryFile(serializable_factors, path + "/graph.bin");
+    try {
+      serializeToBinaryFile(isam2->calculateEstimate(), path + "/values.bin");
+    } catch (std::exception& e) {
+      logger->error("failed to serialize values: {}", e.what());
+    }
+  } else {
+    logger->warn("ISAM2 was corrupted during processing; skipping graph/values serialization");
+  }
 
   std::ofstream ofs(path + "/graph.txt");
   ofs << "num_submaps: " << submaps.size() << std::endl;
   ofs << "num_all_frames: " << std::accumulate(submaps.begin(), submaps.end(), 0, [](int sum, const SubMap::ConstPtr& submap) { return sum + submap->frames.size(); }) << std::endl;
-
-  ofs << "num_matching_cost_factors: " << matching_cost_factors.size() << std::endl;
-  for (const auto& factor : matching_cost_factors) {
-    std::string type;
-
-    if (std::dynamic_pointer_cast<gtsam_points::IntegratedGICPFactor>(factor.second)) {
-      type = "gicp";
-    } else if (std::dynamic_pointer_cast<gtsam_points::IntegratedVGICPFactor>(factor.second)) {
-      type = "vgicp";
-    }
-#ifdef BUILD_GTSAM_POINTS_GPU
-    else if (std::dynamic_pointer_cast<gtsam_points::IntegratedVGICPFactorGPU>(factor.second)) {
-      type = "vgicp_gpu";
-    }
-#endif
-
-    gtsam::Symbol symbol0(factor.second->keys()[0]);
-    gtsam::Symbol symbol1(factor.second->keys()[1]);
-    ofs << "matching_cost " << type << " " << symbol0.index() << " " << symbol1.index() << std::endl;
-  }
+  ofs << "num_matching_cost_factors: 0" << std::endl;
 
   std::ofstream odom_lidar_ofs(path + "/odom_lidar.txt");
   std::ofstream traj_lidar_ofs(path + "/traj_lidar.txt");

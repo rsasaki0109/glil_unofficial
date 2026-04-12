@@ -23,13 +23,13 @@
     // LiDAR config
     "global_shutter_lidar": false,
     "T_lidar_imu": [
-      0.003,
-      0.004,
-      -0.051,
-      -0.476,
-      0.474,
-      0.524,
-      0.525
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
     ],
     // Camera config (required for only extension modules)
     "global_shutter_camera": true,

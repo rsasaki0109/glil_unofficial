@@ -99,6 +99,7 @@ OdometryEstimationIMU::OdometryEstimationIMU(std::unique_ptr<OdometryEstimationI
   isam2_params.relinearizeSkip = params->isam2_relinearize_skip;
   isam2_params.setRelinearizeThreshold(params->isam2_relinearize_thresh);
   smoother.reset(new FixedLagSmootherExt(params->smoother_lag, isam2_params));
+  smoother->set_fix_variable_types({{'x', 0}, {'v', 1}, {'b', 2}});
 }
 
 OdometryEstimationIMU::~OdometryEstimationIMU() {}
@@ -129,7 +130,8 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
   if (raw_frame->size()) {
     logger->trace("insert_frame points={} times={} ~ {}", raw_frame->size(), raw_frame->times.front(), raw_frame->times.back());
   } else {
-    logger->warn("insert_frame points={}", raw_frame->size());
+    logger->warn("insert_frame points={} -- skipping empty frame", raw_frame->size());
+    return nullptr;
   }
   Callbacks::on_insert_frame(raw_frame);
 
