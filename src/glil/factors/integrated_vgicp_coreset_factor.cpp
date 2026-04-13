@@ -117,12 +117,16 @@ void IntegratedVGICPCoresetFactor::extract_coreset(const Eigen::Isometry3d& delt
 
   const int num_valid = valid_indices.size();
   if (num_valid < coreset_params.coreset_target_size) {
-    // Too few points for coreset extraction, use all
-    coreset_indices.resize(num_valid);
-    coreset_weights.resize(num_valid);
+    // Too few points for coreset extraction, use all (3 residual rows per point)
+    coreset_indices.resize(3 * num_valid);
+    coreset_residual_rows.resize(3 * num_valid);
+    coreset_weights.resize(3 * num_valid);
     for (int i = 0; i < num_valid; i++) {
-      coreset_indices[i] = valid_indices[i];
-      coreset_weights[i] = 1.0;
+      for (int r = 0; r < 3; r++) {
+        coreset_indices[i * 3 + r] = valid_indices[i];
+        coreset_residual_rows[i * 3 + r] = r;
+        coreset_weights[i * 3 + r] = 1.0;
+      }
     }
     coreset_valid = true;
     last_coreset_delta = delta;
@@ -182,16 +186,19 @@ void IntegratedVGICPCoresetFactor::extract_coreset(const Eigen::Isometry3d& delt
 
   exd::fast_caratheodory_quadratic(J, e, coreset_params.coreset_num_clusters, raw_indices, raw_weights, target_N);
 
-  // Map coreset residual indices back to point indices
+  // Map coreset residual indices back to point indices and row offsets
   // Each point generates 3 residuals (rows idx*3, idx*3+1, idx*3+2)
-  // The coreset selects individual residual rows
+  // The coreset selects individual residual rows, so we must track
+  // which row within the point (0, 1, or 2) was selected
   coreset_indices.resize(raw_indices.size());
+  coreset_residual_rows.resize(raw_indices.size());
   coreset_weights.resize(raw_indices.size());
   for (int i = 0; i < raw_indices.size(); i++) {
-    // Map residual index to point index in valid_indices
     int residual_idx = raw_indices[i];
     int point_local_idx = residual_idx / 3;
+    int row_within_point = residual_idx % 3;
     coreset_indices[i] = valid_indices[point_local_idx];
+    coreset_residual_rows[i] = row_within_point;
     coreset_weights[i] = raw_weights[i];
   }
 
@@ -216,15 +223,150 @@ double IntegratedVGICPCoresetFactor::evaluate(
     extract_coreset(delta);
   }
 
-  double sum_errors = 0.0;
-
   if (!coreset_valid || coreset_indices.size() == 0) {
+    if (H_target) {
+      H_target->setZero();
+      H_source->setZero();
+      H_target_source->setZero();
+      b_target->setZero();
+      b_source->setZero();
+    }
     return 0.0;
   }
 
-  // Evaluate using coreset points only
+  // Zero-initialize output matrices (caller may pass uninitialized memory)
+  if (H_target) {
+    H_target->setZero();
+    H_source->setZero();
+    H_target_source->setZero();
+    b_target->setZero();
+    b_source->setZero();
+  }
+
+  // Debug verification: compare coreset evaluation against full evaluation
+  // Only for the first few calls to avoid performance impact
+  if (debug_count < 3 && H_target) {
+    Eigen::Matrix<double, 6, 6> H_full_target = Eigen::Matrix<double, 6, 6>::Zero();
+    Eigen::Matrix<double, 6, 6> H_full_source = Eigen::Matrix<double, 6, 6>::Zero();
+    Eigen::Matrix<double, 6, 6> H_full_ts = Eigen::Matrix<double, 6, 6>::Zero();
+    Eigen::Matrix<double, 6, 1> b_full_target = Eigen::Matrix<double, 6, 1>::Zero();
+    Eigen::Matrix<double, 6, 1> b_full_source = Eigen::Matrix<double, 6, 1>::Zero();
+    double c_full = 0.0;
+
+    const int N = point_size(*source);
+    for (int i = 0; i < N; i++) {
+      if (correspondences[i] == nullptr) continue;
+      const auto& mean_A = point_at(*source, i);
+      const auto& mean_B = correspondences[i]->mean;
+      Eigen::Vector4d transed_mean_A = delta * mean_A;
+      Eigen::Vector4d residual = mean_B - transed_mean_A;
+      const Eigen::Matrix4d& M = mahalanobis[i];
+      c_full += residual.transpose() * M * residual;
+
+      Eigen::Matrix<double, 4, 6> J_t = Eigen::Matrix<double, 4, 6>::Zero();
+      J_t.block<3, 3>(0, 0) = -gtsam::SO3::Hat(transed_mean_A.head<3>());
+      J_t.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
+      Eigen::Matrix<double, 4, 6> J_s = Eigen::Matrix<double, 4, 6>::Zero();
+      J_s.block<3, 3>(0, 0) = delta.linear() * gtsam::SO3::Hat(mean_A.head<3>());
+      J_s.block<3, 3>(0, 3) = -delta.linear();
+
+      Eigen::Matrix<double, 6, 4> J_t_M = J_t.transpose() * M;
+      Eigen::Matrix<double, 6, 4> J_s_M = J_s.transpose() * M;
+      H_full_target += J_t_M * J_t;
+      H_full_source += J_s_M * J_s;
+      H_full_ts += J_t_M * J_s;
+      b_full_target += J_t_M * residual;
+      b_full_source += J_s_M * residual;
+    }
+
+    // Now compute coreset evaluation for comparison (same as below)
+    Eigen::Matrix<double, 6, 6> H_cs_target = Eigen::Matrix<double, 6, 6>::Zero();
+    Eigen::Matrix<double, 6, 6> H_cs_source = Eigen::Matrix<double, 6, 6>::Zero();
+    Eigen::Matrix<double, 6, 6> H_cs_ts = Eigen::Matrix<double, 6, 6>::Zero();
+    Eigen::Matrix<double, 6, 1> b_cs_target = Eigen::Matrix<double, 6, 1>::Zero();
+    Eigen::Matrix<double, 6, 1> b_cs_source = Eigen::Matrix<double, 6, 1>::Zero();
+    double c_cs = 0.0;
+
+    for (int ci = 0; ci < coreset_indices.size(); ci++) {
+      const int i = coreset_indices[ci];
+      const int row = coreset_residual_rows[ci];
+      const double w = coreset_weights[ci];
+      if (correspondences[i] == nullptr) continue;
+
+      const auto& mean_A = point_at(*source, i);
+      const auto& mean_B = correspondences[i]->mean;
+      Eigen::Vector4d transed_mean_A = delta * mean_A;
+      Eigen::Vector4d residual = mean_B - transed_mean_A;
+
+      // Cholesky decomposition of Mahalanobis
+      Eigen::Matrix3d M3 = mahalanobis[i].topLeftCorner<3, 3>();
+      Eigen::LLT<Eigen::Matrix3d> llt(M3);
+      Eigen::Matrix3d L;
+      if (llt.info() == Eigen::Success) {
+        L = llt.matrixL();
+      } else {
+        L = M3.diagonal().cwiseSqrt().asDiagonal();
+      }
+
+      // L^T * residual gives the whitened residual (3-vector)
+      Eigen::Vector3d w_res = L.transpose() * residual.head<3>();
+      double e_row = w_res[row];
+      c_cs += w * e_row * e_row;
+
+      // Jacobians
+      Eigen::Matrix<double, 3, 6> J_t_3x6 = Eigen::Matrix<double, 3, 6>::Zero();
+      J_t_3x6.block<3, 3>(0, 0) = -gtsam::SO3::Hat(transed_mean_A.head<3>());
+      J_t_3x6.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
+      Eigen::Matrix<double, 3, 6> J_s_3x6 = Eigen::Matrix<double, 3, 6>::Zero();
+      J_s_3x6.block<3, 3>(0, 0) = delta.linear() * gtsam::SO3::Hat(mean_A.head<3>());
+      J_s_3x6.block<3, 3>(0, 3) = -delta.linear();
+
+      Eigen::Matrix<double, 3, 6> wJ_t = L.transpose() * J_t_3x6;
+      Eigen::Matrix<double, 3, 6> wJ_s = L.transpose() * J_s_3x6;
+      Eigen::Matrix<double, 1, 6> j_t_row = wJ_t.row(row);
+      Eigen::Matrix<double, 1, 6> j_s_row = wJ_s.row(row);
+
+      H_cs_target += w * j_t_row.transpose() * j_t_row;
+      H_cs_source += w * j_s_row.transpose() * j_s_row;
+      H_cs_ts += w * j_t_row.transpose() * j_s_row;
+      b_cs_target += w * j_t_row.transpose() * e_row;
+      b_cs_source += w * j_s_row.transpose() * e_row;
+    }
+
+    double H_diff = (H_full_source - H_cs_source).norm();
+    double b_diff = (b_full_source - b_cs_source).norm();
+    double c_diff = std::abs(c_full - c_cs);
+    double H_rel = H_full_source.norm() > 0 ? H_diff / H_full_source.norm() : H_diff;
+    double b_rel = b_full_source.norm() > 0 ? b_diff / b_full_source.norm() : b_diff;
+    double c_rel = c_full > 0 ? c_diff / c_full : c_diff;
+
+    // Write debug output to both stderr and a file
+    fprintf(stderr, "[CORESET_DEBUG] eval #%d: coreset_size=%ld, full_points=%d\n", debug_count, coreset_indices.size(), N);
+    fprintf(stderr, "[CORESET_DEBUG]   H_source: full_norm=%.6e, diff=%.6e, rel=%.6e\n", H_full_source.norm(), H_diff, H_rel);
+    fprintf(stderr, "[CORESET_DEBUG]   b_source: full_norm=%.6e, diff=%.6e, rel=%.6e\n", b_full_source.norm(), b_diff, b_rel);
+    fprintf(stderr, "[CORESET_DEBUG]   c (error): full=%.6e, coreset=%.6e, diff=%.6e, rel=%.6e\n", c_full, c_cs, c_diff, c_rel);
+    fflush(stderr);
+
+    FILE* dbg_file = fopen("/tmp/coreset_debug.log", "a");
+    if (dbg_file) {
+      fprintf(dbg_file, "[CORESET_DEBUG] eval #%d: coreset_size=%ld, full_points=%d\n", debug_count, coreset_indices.size(), N);
+      fprintf(dbg_file, "[CORESET_DEBUG]   H_source: full_norm=%.6e, diff=%.6e, rel=%.6e\n", H_full_source.norm(), H_diff, H_rel);
+      fprintf(dbg_file, "[CORESET_DEBUG]   b_source: full_norm=%.6e, diff=%.6e, rel=%.6e\n", b_full_source.norm(), b_diff, b_rel);
+      fprintf(dbg_file, "[CORESET_DEBUG]   c (error): full=%.6e, coreset=%.6e, diff=%.6e, rel=%.6e\n", c_full, c_cs, c_diff, c_rel);
+      fclose(dbg_file);
+    }
+
+    debug_count++;
+  }
+
+  // Evaluate using coreset points with per-row decomposition
+  // The coreset was built on whitened residual rows (L^T * r)[row],
+  // so we must evaluate in the same decomposed form
+  double sum_errors = 0.0;
+
   for (int ci = 0; ci < coreset_indices.size(); ci++) {
     const int i = coreset_indices[ci];
+    const int row = coreset_residual_rows[ci];
     const double w = coreset_weights[ci];
 
     const auto& target_voxel = correspondences[i];
@@ -238,30 +380,48 @@ double IntegratedVGICPCoresetFactor::evaluate(
     Eigen::Vector4d transed_mean_A = delta * mean_A;
     Eigen::Vector4d residual = mean_B - transed_mean_A;
 
-    const Eigen::Matrix4d& M = mahalanobis[i];
-    const double error = w * static_cast<double>(residual.transpose() * M * residual);
-    sum_errors += error;
+    // Cholesky decomposition of Mahalanobis matrix
+    Eigen::Matrix3d M3 = mahalanobis[i].topLeftCorner<3, 3>();
+    Eigen::LLT<Eigen::Matrix3d> llt(M3);
+    Eigen::Matrix3d L;
+    if (llt.info() == Eigen::Success) {
+      L = llt.matrixL();
+    } else {
+      L = M3.diagonal().cwiseSqrt().asDiagonal();
+    }
+
+    // Whitened residual: (L^T * r)[row]
+    Eigen::Vector3d w_res = L.transpose() * residual.head<3>();
+    double e_row = w_res[row];
+
+    // Per-row error contribution
+    sum_errors += w * e_row * e_row;
 
     if (!H_target) {
       continue;
     }
 
-    Eigen::Matrix<double, 4, 6> J_target = Eigen::Matrix<double, 4, 6>::Zero();
-    J_target.block<3, 3>(0, 0) = -gtsam::SO3::Hat(transed_mean_A.template head<3>());
-    J_target.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
+    // 3x6 Jacobians (same as original VGICP)
+    Eigen::Matrix<double, 3, 6> J_target_3x6 = Eigen::Matrix<double, 3, 6>::Zero();
+    J_target_3x6.block<3, 3>(0, 0) = -gtsam::SO3::Hat(transed_mean_A.template head<3>());
+    J_target_3x6.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
 
-    Eigen::Matrix<double, 4, 6> J_source = Eigen::Matrix<double, 4, 6>::Zero();
-    J_source.block<3, 3>(0, 0) = delta.linear() * gtsam::SO3::Hat(mean_A.template head<3>());
-    J_source.block<3, 3>(0, 3) = -delta.linear();
+    Eigen::Matrix<double, 3, 6> J_source_3x6 = Eigen::Matrix<double, 3, 6>::Zero();
+    J_source_3x6.block<3, 3>(0, 0) = delta.linear() * gtsam::SO3::Hat(mean_A.template head<3>());
+    J_source_3x6.block<3, 3>(0, 3) = -delta.linear();
 
-    Eigen::Matrix<double, 6, 4> J_target_mahalanobis = w * J_target.transpose() * M;
-    Eigen::Matrix<double, 6, 4> J_source_mahalanobis = w * J_source.transpose() * M;
+    // Whiten the Jacobians: L^T * J, then take the selected row
+    Eigen::Matrix<double, 3, 6> wJ_target = L.transpose() * J_target_3x6;
+    Eigen::Matrix<double, 3, 6> wJ_source = L.transpose() * J_source_3x6;
+    Eigen::Matrix<double, 1, 6> j_target_row = wJ_target.row(row);
+    Eigen::Matrix<double, 1, 6> j_source_row = wJ_source.row(row);
 
-    *H_target += J_target_mahalanobis * J_target;
-    *H_source += J_source_mahalanobis * J_source;
-    *H_target_source += J_target_mahalanobis * J_source;
-    *b_target += J_target_mahalanobis * residual;
-    *b_source += J_source_mahalanobis * residual;
+    // Accumulate per-row Hessian and gradient contributions
+    *H_target += w * j_target_row.transpose() * j_target_row;
+    *H_source += w * j_source_row.transpose() * j_source_row;
+    *H_target_source += w * j_target_row.transpose() * j_source_row;
+    *b_target += w * j_target_row.transpose() * e_row;
+    *b_source += w * j_source_row.transpose() * e_row;
   }
 
   return sum_errors;
