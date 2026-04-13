@@ -95,8 +95,12 @@ private:
   // Coreset data
   mutable bool coreset_valid;
   mutable Eigen::Isometry3d last_coreset_delta;
-  mutable Eigen::VectorXi coreset_indices;
+  mutable Eigen::VectorXi coreset_indices;      // point index for each coreset entry
+  mutable Eigen::VectorXi coreset_residual_rows; // residual row within point (0,1,2) for each coreset entry
   mutable Eigen::VectorXd coreset_weights;
+
+  // Debug verification counter
+  mutable int debug_count = 0;
 };
 
 }  // namespace glil
