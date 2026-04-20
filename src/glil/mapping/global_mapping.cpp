@@ -1,12 +1,18 @@
 #include <glil/mapping/global_mapping.hpp>
 
+#include <map>
+#include <sstream>
 #include <unordered_set>
+#include <Eigen/Cholesky>
+#include <Eigen/Eigenvalues>
 #include <spdlog/spdlog.h>
 #include <boost/filesystem.hpp>
 
 #include <gtsam/base/serialization.h>
 #include <gtsam/inference/Symbol.h>
+#include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/slam/BetweenFactor.h>
+#include <gtsam/slam/PriorFactor.h>
 #include <gtsam/navigation/ImuBias.h>
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
@@ -40,6 +46,223 @@ using gtsam::symbol_shorthand::V;
 using gtsam::symbol_shorthand::X;
 
 using Callbacks = GlobalMappingCallbacks;
+
+namespace {
+
+std::string summarize_keys(const gtsam::KeyVector& keys, const size_t max_keys = 8) {
+  std::ostringstream oss;
+
+  for (size_t i = 0; i < keys.size() && i < max_keys; i++) {
+    if (i) {
+      oss << ", ";
+    }
+    oss << gtsam::Symbol(keys[i]);
+  }
+
+  if (keys.size() > max_keys) {
+    oss << ", ...";
+  }
+
+  return oss.str();
+}
+
+std::string summarize_values(const gtsam::Values& values, const size_t max_keys = 8) {
+  gtsam::KeyVector keys;
+  keys.reserve(values.size());
+
+  for (const auto& value : values) {
+    keys.push_back(value.key);
+  }
+
+  return summarize_keys(keys, max_keys);
+}
+
+std::string classify_factor(const gtsam::NonlinearFactor::shared_ptr& factor) {
+  if (!factor) {
+    return "null";
+  }
+  if (std::dynamic_pointer_cast<gtsam_points::LinearDampingFactor>(factor)) {
+    return "LinearDamping";
+  }
+  if (std::dynamic_pointer_cast<gtsam::BetweenFactor<gtsam::Pose3>>(factor)) {
+    return "BetweenPose3";
+  }
+  if (std::dynamic_pointer_cast<gtsam::BetweenFactor<gtsam::Vector3>>(factor)) {
+    return "BetweenVector3";
+  }
+  if (std::dynamic_pointer_cast<gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>>(factor)) {
+    return "BetweenBias";
+  }
+  if (std::dynamic_pointer_cast<gtsam::PriorFactor<gtsam::Pose3>>(factor)) {
+    return "PriorPose3";
+  }
+  if (std::dynamic_pointer_cast<gtsam::PriorFactor<gtsam::Vector3>>(factor)) {
+    return "PriorVector3";
+  }
+  if (std::dynamic_pointer_cast<gtsam::PriorFactor<gtsam::imuBias::ConstantBias>>(factor)) {
+    return "PriorBias";
+  }
+  if (std::dynamic_pointer_cast<gtsam::ImuFactor>(factor)) {
+    return "ImuFactor";
+  }
+  if (std::dynamic_pointer_cast<gtsam_points::RotateVector3Factor>(factor)) {
+    return "RotateVector3";
+  }
+  if (std::dynamic_pointer_cast<IntegratedVGICPCoresetFactor>(factor)) {
+    return "IntegratedVGICPCoreset";
+  }
+  if (std::dynamic_pointer_cast<gtsam_points::IntegratedMatchingCostFactor>(factor)) {
+    return "IntegratedMatchingCost";
+  }
+
+  return "Other";
+}
+
+std::string matching_cost_factor_type(const gtsam::NonlinearFactor::shared_ptr& factor) {
+  if (std::dynamic_pointer_cast<IntegratedVGICPCoresetFactor>(factor)) {
+    return "vgicp_coreset";
+  }
+  if (std::dynamic_pointer_cast<gtsam_points::IntegratedVGICPFactor>(factor)) {
+    return "vgicp";
+  }
+#ifdef BUILD_GTSAM_POINTS_GPU
+  if (std::dynamic_pointer_cast<gtsam_points::IntegratedVGICPFactorGPU>(factor)) {
+    return "vgicp_gpu";
+  }
+#endif
+  return "";
+}
+
+std::string summarize_factor_type_counts(const gtsam::NonlinearFactorGraph& graph) {
+  std::map<std::string, int> counts;
+
+  for (const auto& factor : graph) {
+    counts[classify_factor(factor)]++;
+  }
+
+  std::ostringstream oss;
+  bool first = true;
+  for (const auto& [type, count] : counts) {
+    if (!first) {
+      oss << ", ";
+    }
+    first = false;
+    oss << type << ":" << count;
+  }
+
+  return oss.str();
+}
+
+std::string summarize_key_support(const gtsam::NonlinearFactorGraph& graph, const char symbol, const size_t max_keys = 8) {
+  std::map<size_t, int> counts;
+
+  for (const auto& factor : graph) {
+    if (!factor) {
+      continue;
+    }
+
+    for (const auto key : factor->keys()) {
+      const gtsam::Symbol sym(key);
+      if (sym.chr() == symbol) {
+        counts[sym.index()]++;
+      }
+    }
+  }
+
+  std::ostringstream oss;
+  size_t emitted = 0;
+  for (const auto& [index, count] : counts) {
+    if (emitted) {
+      oss << ", ";
+    }
+    oss << symbol << index << ":" << count;
+    emitted++;
+    if (emitted >= max_keys) {
+      if (counts.size() > max_keys) {
+        oss << ", ...";
+      }
+      break;
+    }
+  }
+
+  return oss.str();
+}
+
+std::string summarize_factor_graph(const gtsam::NonlinearFactorGraph& graph, const size_t max_factors = 8) {
+  std::ostringstream oss;
+
+  for (size_t i = 0; i < graph.size() && i < max_factors; i++) {
+    if (i) {
+      oss << " | ";
+    }
+
+    const auto& factor = graph[i];
+    if (!factor) {
+      oss << "null";
+      continue;
+    }
+
+    oss << classify_factor(factor) << "(" << summarize_keys(factor->keys()) << ", dim=" << factor->dim() << ")";
+  }
+
+  if (graph.size() > max_factors) {
+    oss << " | ...";
+  }
+
+  return oss.str();
+}
+
+template <typename Derived>
+std::string summarize_vector(const Eigen::MatrixBase<Derived>& values, const size_t max_values = 6) {
+  std::ostringstream oss;
+
+  for (size_t i = 0; i < static_cast<size_t>(values.size()) && i < max_values; i++) {
+    if (i) {
+      oss << ", ";
+    }
+    oss << values.derived()(static_cast<Eigen::Index>(i));
+  }
+
+  if (static_cast<size_t>(values.size()) > max_values) {
+    oss << ", ...";
+  }
+
+  return oss.str();
+}
+
+void log_pending_update_summary(
+  spdlog::logger* logger,
+  const int current,
+  const size_t between_factor_count,
+  const size_t matching_factor_count,
+  const size_t imu_factor_count,
+  const gtsam::NonlinearFactorGraph& existing_factors,
+  const gtsam::NonlinearFactorGraph& pending_factors,
+  const gtsam::Values& pending_values) {
+  logger->debug(
+    "global update current={} existing_factors={} pending_factors={} (between={} matching={} imu={}) pending_values={} [{}]",
+    current,
+    existing_factors.size(),
+    pending_factors.size(),
+    between_factor_count,
+    matching_factor_count,
+    imu_factor_count,
+    pending_values.size(),
+    summarize_values(pending_values));
+
+  logger->debug(
+    "global update current={} pending_types=[{}] existing_x_support=[{}] pending_x_support=[{}]",
+    current,
+    summarize_factor_type_counts(pending_factors),
+    summarize_key_support(existing_factors, 'x'),
+    summarize_key_support(pending_factors, 'x'));
+
+  if (current <= 2 || pending_factors.size() <= 8) {
+    logger->debug("global update current={} pending_factor_list={}", current, summarize_factor_graph(pending_factors, 16));
+  }
+}
+
+}  // namespace
 
 GlobalMappingParams::GlobalMappingParams() {
   Config config(GlobalConfig::get_config_path("config_global_mapping"));
@@ -80,6 +303,8 @@ GlobalMapping::GlobalMapping(const GlobalMappingParams& params) : params(params)
 
   new_values.reset(new gtsam::Values);
   new_factors.reset(new gtsam::NonlinearFactorGraph);
+  last_good_graph.reset(new gtsam::NonlinearFactorGraph);
+  last_good_values.reset(new gtsam::Values);
 
   gtsam::ISAM2Params isam2_params;
   if (params.use_isam2_dogleg) {
@@ -94,13 +319,22 @@ GlobalMapping::GlobalMapping(const GlobalMappingParams& params) : params(params)
   } else {
     isam2.reset(new gtsam_points::ISAM2ExtDummy(isam2_params));
   }
-
 #ifdef BUILD_GTSAM_POINTS_GPU
   stream_buffer_roundrobin = std::make_shared<gtsam_points::StreamTempBufferRoundRobin>(64);
 #endif
 }
 
 GlobalMapping::~GlobalMapping() {}
+
+void GlobalMapping::refresh_last_good_snapshot() {
+  try {
+    last_good_graph.reset(new gtsam::NonlinearFactorGraph(isam2->getFactorsUnsafe()));
+    last_good_values.reset(new gtsam::Values(isam2->calculateEstimate()));
+    last_good_snapshot_valid = true;
+  } catch (std::exception& e) {
+    logger->warn("failed to refresh last-good iSAM2 snapshot: {}", e.what());
+  }
+}
 
 void GlobalMapping::insert_imu(const double stamp, const Eigen::Vector3d& linear_acc, const Eigen::Vector3d& angular_vel) {
   Callbacks::on_insert_imu(stamp, linear_acc, angular_vel);
@@ -116,7 +350,7 @@ void GlobalMapping::insert_submap(const SubMap::Ptr& submap) {
   const int last = current - 1;
   insert_submap(current, submap);
 
-  // If ISAM2 is corrupted, just store the submap with odometry-based pose and return
+  // If iSAM2 is unavailable for new submaps, keep exporting the odometry chain.
   if (isam2_corrupted) {
     if (current != 0) {
       const Eigen::Isometry3d T_origin0_endpointR0 = submaps[last]->T_origin_endpoint_R;
@@ -162,13 +396,23 @@ void GlobalMapping::insert_submap(const SubMap::Ptr& submap) {
 
   submap->drop_frame_points();
 
+  size_t between_factor_count = 0;
+  size_t matching_factor_count = 0;
   if (current == 0) {
-    new_factors->emplace_shared<gtsam_points::LinearDampingFactor>(X(0), 6, params.init_pose_damping_scale);
+    new_factors->emplace_shared<gtsam::PriorFactor<gtsam::Pose3>>(
+      X(0),
+      current_T_world_submap,
+      gtsam::noiseModel::Isotropic::Precision(6, params.init_pose_damping_scale));
   } else {
-    new_factors->add(*create_between_factors(current));
-    new_factors->add(*create_matching_cost_factors(current));
+    const auto between_factors = create_between_factors(current);
+    const auto matching_factors = create_matching_cost_factors(current);
+    between_factor_count = between_factors->size();
+    matching_factor_count = matching_factors->size();
+    new_factors->add(*between_factors);
+    new_factors->add(*matching_factors);
   }
 
+  const size_t num_factors_before_imu = new_factors->size();
   if (params.enable_imu) {
     if (submap->odom_frames.front()->frame_id != FrameID::IMU) {
       logger->warn("odom frames are not estimated in the IMU frame while global mapping requires IMU estimation");
@@ -222,13 +466,24 @@ void GlobalMapping::insert_submap(const SubMap::Ptr& submap) {
   }
 
   if (!isam2_corrupted) {
-    Callbacks::on_smoother_update(*isam2, *new_factors, *new_values);
+    const size_t imu_factor_count = new_factors->size() - num_factors_before_imu;
+    log_pending_update_summary(logger.get(), current, between_factor_count, matching_factor_count, imu_factor_count, isam2->getFactorsUnsafe(), *new_factors, *new_values);
     try {
+      Callbacks::on_smoother_update(*isam2, *new_factors, *new_values);
       auto result = isam2->update(*new_factors, *new_values);
       Callbacks::on_smoother_update_result(*isam2, result);
+      refresh_last_good_snapshot();
     } catch (std::exception& e) {
       logger->error("an exception was caught during global map optimization!!");
       logger->error(e.what());
+      logger->error(
+        "global update failure current={} pending_values={} [{}] pending_types=[{}] pending_x_support=[{}]",
+        current,
+        new_values->size(),
+        summarize_values(*new_values),
+        summarize_factor_type_counts(*new_factors),
+        summarize_key_support(*new_factors, 'x'));
+      logger->error("global update failure current={} pending_factor_list={}", current, summarize_factor_graph(*new_factors, 16));
       logger->error("disabling further ISAM2 updates to prevent cascading failures");
       isam2_corrupted = true;
     }
@@ -344,10 +599,11 @@ void GlobalMapping::find_overlapping_submaps(double min_overlap) {
 
   if (!isam2_corrupted) {
     gtsam::Values new_values;
-    Callbacks::on_smoother_update(*isam2, new_factors, new_values);
     try {
+      Callbacks::on_smoother_update(*isam2, new_factors, new_values);
       auto result = isam2->update(new_factors, new_values);
       Callbacks::on_smoother_update_result(*isam2, result);
+      refresh_last_good_snapshot();
     } catch (std::exception& e) {
       logger->error("an exception was caught during global map optimization (find_overlapping)!!");
       logger->error(e.what());
@@ -368,10 +624,11 @@ void GlobalMapping::optimize() {
 
   gtsam::NonlinearFactorGraph new_factors;
   gtsam::Values new_values;
-  Callbacks::on_smoother_update(*isam2, new_factors, new_values);
   try {
+    Callbacks::on_smoother_update(*isam2, new_factors, new_values);
     auto result = isam2->update(new_factors, new_values);
     Callbacks::on_smoother_update_result(*isam2, result);
+    refresh_last_good_snapshot();
   } catch (std::exception& e) {
     logger->error("an exception was caught during global map final optimization!!");
     logger->error(e.what());
@@ -419,7 +676,63 @@ std::shared_ptr<gtsam::NonlinearFactorGraph> GlobalMapping::create_between_facto
 
   const gtsam::Pose3 estimated_delta = values.at<gtsam::Pose3>(X(1));
   const auto linearized = factor->linearize(values);
-  const auto H = linearized->hessianBlockDiagonal()[X(1)] + 1e6 * gtsam::Matrix6::Identity();
+  const gtsam::Matrix6 raw_H = linearized->hessianBlockDiagonal()[X(1)];
+  const double raw_symmetry_error = (raw_H - raw_H.transpose()).cwiseAbs().maxCoeff();
+  Eigen::LLT<gtsam::Matrix6> raw_llt(raw_H);
+  const bool raw_h_spd = raw_llt.info() == Eigen::Success;
+
+  gtsam::Matrix6 H = 0.5 * (raw_H + raw_H.transpose());
+  H += 1e6 * gtsam::Matrix6::Identity();
+
+  Eigen::LLT<gtsam::Matrix6> llt(H);
+  if (llt.info() != Eigen::Success) {
+    Eigen::SelfAdjointEigenSolver<gtsam::Matrix6> eig(H);
+    if (eig.info() == Eigen::Success) {
+      const double min_eig = eig.eigenvalues().minCoeff();
+      const double jitter = std::max(1e-6, -min_eig + 1e-6);
+      logger->warn(
+        "between factor current={} required additional SPD jitter: min_eig={:.6e} jitter={:.6e}",
+        current,
+        min_eig,
+        jitter);
+      H += jitter * gtsam::Matrix6::Identity();
+    } else {
+      logger->warn("between factor current={} eigen decomposition failed while stabilizing H, falling back to isotropic information", current);
+      H = 1e6 * gtsam::Matrix6::Identity();
+    }
+    llt.compute(H);
+  }
+  const bool h_spd = llt.info() == Eigen::Success;
+
+  if (!raw_h_spd || raw_symmetry_error > 1e-3 || !H.allFinite() || !h_spd) {
+    logger->warn(
+      "between factor current={} last={} points=({}, {}) init_trans_norm={:.6f} est_trans_norm={:.6f} raw_H_spd={} raw_symmetry_error={:.3e} H_finite={} H_spd={} H_diag=[{}]",
+      current,
+      last,
+      submaps[last]->frame->size(),
+      submaps[current]->frame->size(),
+      init_delta.translation().norm(),
+      estimated_delta.translation().norm(),
+      raw_h_spd,
+      raw_symmetry_error,
+      H.allFinite(),
+      h_spd,
+      summarize_vector(H.diagonal()));
+  } else if (current <= 2) {
+    logger->debug(
+      "between factor current={} last={} points=({}, {}) init_trans_norm={:.6f} est_trans_norm={:.6f} raw_H_spd={} raw_symmetry_error={:.3e} H_finite={} H_spd={} H_diag=[{}]",
+      current,
+      last,
+      submaps[last]->frame->size(),
+      submaps[current]->frame->size(),
+      init_delta.translation().norm(),
+      estimated_delta.translation().norm(),
+      raw_h_spd,
+      raw_symmetry_error,
+      H.allFinite(),
+      h_spd,
+      summarize_vector(H.diagonal()));
+  }
 
   factors->add(std::make_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(last), X(current), estimated_delta, gtsam::noiseModel::Gaussian::Information(H)));
   return factors;
@@ -487,12 +800,20 @@ void GlobalMapping::save(const std::string& path) {
   optimize();
 
   boost::filesystem::create_directories(path);
+  std::vector<std::tuple<std::string, int, int>> serialized_matching_cost_factors;
 
-  if (!isam2_corrupted) {
+  const bool serialize_from_snapshot = isam2_corrupted && last_good_snapshot_valid;
+  if (isam2_corrupted && !last_good_snapshot_valid) {
+    logger->warn("ISAM2 was corrupted during processing and no last-good snapshot is available; skipping graph/values serialization");
+  }
+
+  if (!isam2_corrupted || serialize_from_snapshot) {
+    const gtsam::NonlinearFactorGraph& source_factors = serialize_from_snapshot ? *last_good_graph : isam2->getFactorsUnsafe();
+
     gtsam::NonlinearFactorGraph serializable_factors;
     std::unordered_map<std::string, gtsam::NonlinearFactor::shared_ptr> matching_cost_factors;
 
-    for (const auto& factor : isam2->getFactorsUnsafe()) {
+    for (const auto& factor : source_factors) {
       bool serializable = !std::dynamic_pointer_cast<gtsam_points::IntegratedMatchingCostFactor>(factor)
 #ifdef BUILD_GTSAM_POINTS_GPU
                           && !std::dynamic_pointer_cast<gtsam_points::IntegratedVGICPFactorGPU>(factor)
@@ -510,21 +831,47 @@ void GlobalMapping::save(const std::string& path) {
       }
     }
 
-    logger->info("serializing factor graph to {}/graph.bin", path);
+    serialized_matching_cost_factors.reserve(matching_cost_factors.size());
+    for (const auto& [_, factor] : matching_cost_factors) {
+      const std::string type = matching_cost_factor_type(factor);
+      if (type.empty()) {
+        logger->warn("skip unsupported matching cost factor during serialization: {}", classify_factor(factor));
+        continue;
+      }
+
+      const gtsam::Symbol symbol0(factor->keys()[0]);
+      const gtsam::Symbol symbol1(factor->keys()[1]);
+      serialized_matching_cost_factors.emplace_back(type, symbol0.index(), symbol1.index());
+    }
+
+    if (serialize_from_snapshot) {
+      logger->warn(
+        "ISAM2 was corrupted during processing; serializing last-good snapshot (factors={}, values={}) to {}/graph.bin and values.bin",
+        serializable_factors.size(),
+        last_good_values->size(),
+        path);
+    } else {
+      logger->info("serializing factor graph to {}/graph.bin", path);
+    }
     serializeToBinaryFile(serializable_factors, path + "/graph.bin");
     try {
-      serializeToBinaryFile(isam2->calculateEstimate(), path + "/values.bin");
+      if (serialize_from_snapshot) {
+        serializeToBinaryFile(*last_good_values, path + "/values.bin");
+      } else {
+        serializeToBinaryFile(isam2->calculateEstimate(), path + "/values.bin");
+      }
     } catch (std::exception& e) {
       logger->error("failed to serialize values: {}", e.what());
     }
-  } else {
-    logger->warn("ISAM2 was corrupted during processing; skipping graph/values serialization");
   }
 
   std::ofstream ofs(path + "/graph.txt");
   ofs << "num_submaps: " << submaps.size() << std::endl;
   ofs << "num_all_frames: " << std::accumulate(submaps.begin(), submaps.end(), 0, [](int sum, const SubMap::ConstPtr& submap) { return sum + submap->frames.size(); }) << std::endl;
-  ofs << "num_matching_cost_factors: 0" << std::endl;
+  ofs << "num_matching_cost_factors: " << serialized_matching_cost_factors.size() << std::endl;
+  for (const auto& [type, first, second] : serialized_matching_cost_factors) {
+    ofs << "matching_cost_factor: " << type << " " << first << " " << second << std::endl;
+  }
 
   std::ofstream odom_lidar_ofs(path + "/odom_lidar.txt");
   std::ofstream traj_lidar_ofs(path + "/traj_lidar.txt");
@@ -679,6 +1026,10 @@ bool GlobalMapping::load(const std::string& path) {
         for (const auto& voxelmap : submaps[first]->voxelmaps) {
           graph.emplace_shared<gtsam_points::IntegratedVGICPFactor>(X(first), X(second), voxelmap, subsampled_submaps[second]);
         }
+      }
+    } else if (type == "vgicp_coreset") {
+      for (const auto& voxelmap : submaps[first]->voxelmaps) {
+        graph.emplace_shared<IntegratedVGICPCoresetFactor>(X(first), X(second), voxelmap, subsampled_submaps[second]);
       }
     } else {
       logger->warn("unsupported matching cost factor type ({})", type);

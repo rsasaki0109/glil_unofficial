@@ -3,6 +3,8 @@
 #include <glil/odometry/odometry_estimation_imu.hpp>
 #include <glil/factors/integrated_coreset_factor.hpp>
 
+#include <string>
+
 namespace gtsam_points {
 class GaussianVoxelMapCPU;
 class FastOccupancyGrid;
@@ -43,6 +45,10 @@ public:
 
   // Coreset params
   IntegratedCoresetFactor::Params coreset_params;
+  std::string coreset_method;
+  double correspondence_sample_ratio;
+  bool coreset_factor_lock;
+  bool coreset_immutable_snapshot;
 };
 
 /**

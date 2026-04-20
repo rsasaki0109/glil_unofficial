@@ -6,6 +6,7 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/slam/BetweenFactor.h>
+#include <gtsam/slam/PriorFactor.h>
 
 #include <gtsam_points/ann/kdtree.hpp>
 #include <gtsam_points/types/gaussian_voxelmap_cpu.hpp>
@@ -124,7 +125,10 @@ void GlobalMappingPoseGraph::insert_submap(const SubMap::Ptr& submap) {
   submap->drop_frame_points();
 
   if (current == 0) {
-    new_factors->emplace_shared<gtsam_points::LinearDampingFactor>(X(0), 6, params.init_pose_damping_scale);
+    new_factors->emplace_shared<gtsam::PriorFactor<gtsam::Pose3>>(
+      X(0),
+      current_T_world_submap,
+      gtsam::noiseModel::Isotropic::Precision(6, params.init_pose_damping_scale));
   } else {
     new_factors->add(*create_odometry_factors(current));
 

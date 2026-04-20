@@ -2,9 +2,31 @@
 
 namespace glil {
 
+namespace {
+void update_max(std::atomic_int& target, int value) {
+  int current = target.load();
+  while (current < value && !target.compare_exchange_weak(current, value)) {
+  }
+}
+
+void update_max(std::atomic<double>& target, double value) {
+  double current = target.load();
+  while (current < value && !target.compare_exchange_weak(current, value)) {
+  }
+}
+}  // namespace
+
 AsyncSubMapping::AsyncSubMapping(const std::shared_ptr<glil::SubMappingBase>& sub_mapping) : sub_mapping(sub_mapping) {
   kill_switch = false;
   end_of_sequence = false;
+  internal_frame_queue_size = 0;
+  max_frame_queue_size = 0;
+  max_batch_frame_count = 0;
+  current_output_submap_queue_size = 0;
+  max_output_submap_queue_size = 0;
+  latest_input_frame_stamp = 0.0;
+  latest_processed_frame_stamp = 0.0;
+  max_frame_lag_sec = 0.0;
   thread = std::thread([this] { run(); });
 }
 
@@ -25,6 +47,8 @@ void AsyncSubMapping::insert_imu(const double stamp, const Eigen::Vector3d& line
 
 void AsyncSubMapping::insert_frame(const EstimationFrame::ConstPtr& odom_frame) {
   input_frame_queue.push_back(odom_frame);
+  latest_input_frame_stamp.store(odom_frame->stamp);
+  update_max(max_frame_queue_size, workload());
 }
 
 void AsyncSubMapping::join() {
@@ -35,7 +59,21 @@ void AsyncSubMapping::join() {
 }
 
 int AsyncSubMapping::workload() const {
-  return input_frame_queue.size();
+  return input_frame_queue.size() + internal_frame_queue_size.load();
+}
+
+AsyncSubMappingStats AsyncSubMapping::stats() const {
+  AsyncSubMappingStats stats;
+  stats.workload = workload();
+  stats.max_workload = max_frame_queue_size.load();
+  stats.max_batch_size = max_batch_frame_count.load();
+  stats.output_submap_queue_size = current_output_submap_queue_size.load();
+  stats.max_output_submap_queue_size = max_output_submap_queue_size.load();
+  const double latest_input = latest_input_frame_stamp.load();
+  const double latest_processed = latest_processed_frame_stamp.load();
+  stats.current_frame_lag_sec = latest_processed > 0.0 ? std::max(0.0, latest_input - latest_processed) : 0.0;
+  stats.max_frame_lag_sec = max_frame_lag_sec.load();
+  return stats;
 }
 
 std::vector<SubMap::Ptr> AsyncSubMapping::get_results() {
@@ -46,10 +84,15 @@ void AsyncSubMapping::run() {
   while (!kill_switch) {
     auto submaps = sub_mapping->get_submaps();
     output_submap_queue.insert(submaps);
+    current_output_submap_queue_size.store(output_submap_queue.size());
+    update_max(max_output_submap_queue_size, current_output_submap_queue_size.load());
 
     auto images = input_image_queue.get_all_and_clear();
     auto imu_frames = input_imu_queue.get_all_and_clear();
     auto odom_frames = input_frame_queue.get_all_and_clear();
+    internal_frame_queue_size.store(odom_frames.size());
+    update_max(max_batch_frame_count, odom_frames.size());
+    update_max(max_frame_queue_size, workload());
 
     if (images.empty() && imu_frames.empty() && odom_frames.empty()) {
       if (end_of_sequence) {
@@ -71,12 +114,18 @@ void AsyncSubMapping::run() {
       sub_mapping->insert_image(image.first, image.second);
     }
 
-    for (const auto& frame : odom_frames) {
-      std::vector<EstimationFrame::ConstPtr> marginalized;
+    for (int i = 0; i < static_cast<int>(odom_frames.size()); i++) {
+      const auto& frame = odom_frames[i];
       sub_mapping->insert_frame(frame);
+      latest_processed_frame_stamp.store(frame->stamp);
+      internal_frame_queue_size.store(static_cast<int>(odom_frames.size()) - i - 1);
+      const double lag = std::max(0.0, latest_input_frame_stamp.load() - frame->stamp);
+      update_max(max_frame_lag_sec, lag);
     }
   }
 
   output_submap_queue.insert(sub_mapping->submit_end_of_sequence());
+  current_output_submap_queue_size.store(output_submap_queue.size());
+  update_max(max_output_submap_queue_size, current_output_submap_queue_size.load());
 }
 }  // namespace glil

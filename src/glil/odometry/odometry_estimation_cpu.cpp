@@ -29,6 +29,14 @@ using gtsam::symbol_shorthand::B;  // IMU bias
 using gtsam::symbol_shorthand::V;  // IMU velocity   (v_world_imu)
 using gtsam::symbol_shorthand::X;  // IMU pose       (T_world_imu)
 
+namespace {
+
+double rotation_delta_deg(const Eigen::Isometry3d& delta) {
+  return Eigen::AngleAxisd(delta.linear()).angle() * 180.0 / M_PI;
+}
+
+}  // namespace
+
 OdometryEstimationCPUParams::OdometryEstimationCPUParams() : OdometryEstimationIMUParams() {
   // odometry config
   Config config(GlobalConfig::get_config_path("config_odometry"));
@@ -73,6 +81,7 @@ OdometryEstimationCPU::~OdometryEstimationCPU() {}
 gtsam::NonlinearFactorGraph OdometryEstimationCPU::create_factors(const int current, const std::shared_ptr<gtsam::ImuFactor>& imu_factor, gtsam::Values& new_values) {
   const auto params = static_cast<const OdometryEstimationCPUParams*>(this->params.get());
   const int last = current - 1;
+  const bool debug_frame = debug_frame_enabled(current, frames[current]->stamp);
 
   if (current == 0) {
     last_T_target_imu = frames[current]->T_world_imu;
@@ -96,18 +105,19 @@ gtsam::NonlinearFactorGraph OdometryEstimationCPU::create_factors(const int curr
       frames[current]->frame,
       target_ivox);
     gicp_factor->set_max_correspondence_distance(params->ivox_resolution * 2.0);
-    gicp_factor->set_num_threads(params->num_threads);
+    gicp_factor->set_num_threads(params->registration_num_threads);
     matching_cost_factors.add(gicp_factor);
   } else if (params->registration_type == "VGICP") {
     for (const auto& voxelmap : target_voxelmaps) {
       auto vgicp_factor = std::make_shared<gtsam_points::IntegratedVGICPFactor>(gtsam::Pose3(), X(current), voxelmap, frames[current]->frame);
-      vgicp_factor->set_num_threads(params->num_threads);
+      vgicp_factor->set_num_threads(params->registration_num_threads);
       matching_cost_factors.add(vgicp_factor);
     }
   }
 
   gtsam::NonlinearFactorGraph graph;
   graph.add(matching_cost_factors);
+  const double initial_matching_error = debug_frame ? graph.error(values) : 0.0;
 
   gtsam_points::LevenbergMarquardtExtParams lm_params;
   lm_params.setMaxIterations(params->max_iterations);
@@ -135,8 +145,10 @@ gtsam::NonlinearFactorGraph OdometryEstimationCPU::create_factors(const int curr
   // lm_params.setDiagonalDamping(true);
   gtsam_points::LevenbergMarquardtOptimizerExt optimizer(graph, values, lm_params);
   values = optimizer.optimize();
+  const double final_matching_error = debug_frame ? graph.error(values) : 0.0;
 
   const Eigen::Isometry3d T_target_imu = Eigen::Isometry3d(values.at<gtsam::Pose3>(X(current)).matrix());
+  const Eigen::Isometry3d reg_correction = pred_T_target_imu.inverse() * T_target_imu;
   Eigen::Isometry3d T_last_current = last_T_target_imu.inverse() * T_target_imu;
   T_last_current.linear() = Eigen::Quaterniond(T_last_current.linear()).normalized().toRotationMatrix();
   frames[current]->T_world_imu = frames[last]->T_world_imu * T_last_current;
@@ -153,6 +165,25 @@ gtsam::NonlinearFactorGraph OdometryEstimationCPU::create_factors(const int curr
   // TODO: Extract a relative pose covariance from a frame-to-model matching result?
   factors.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(last), X(current), gtsam::Pose3(T_last_current.matrix()), gtsam::noiseModel::Isotropic::Precision(6, 1e3));
   factors.emplace_shared<gtsam::PriorFactor<gtsam::Pose3>>(X(current), gtsam::Pose3(T_target_imu.matrix()), gtsam::noiseModel::Isotropic::Precision(6, 1e3));
+
+  if (debug_frame) {
+    logger->info(
+      "frame-dbg-reg frame={} seq={} reg_type={} matching_factors={} frame_points={} init_error={:.6f} final_error={:.6f} pred_rel_trans={:.6f} pred_rel_rot_deg={:.6f} opt_rel_trans={:.6f} opt_rel_rot_deg={:.6f} corr_trans={:.6f} corr_rot_deg={:.6f} emitted_factors={}",
+      current,
+      frames[current]->raw_frame ? frames[current]->raw_frame->debug_sequence_id : -1,
+      params->registration_type,
+      matching_cost_factors.size(),
+      frames[current]->frame ? frames[current]->frame->size() : 0,
+      initial_matching_error,
+      final_matching_error,
+      pred_T_last_current.translation().norm(),
+      rotation_delta_deg(pred_T_last_current),
+      T_last_current.translation().norm(),
+      rotation_delta_deg(T_last_current),
+      reg_correction.translation().norm(),
+      rotation_delta_deg(reg_correction),
+      factors.size());
+  }
 
   update_target(current, T_target_imu);
   last_T_target_imu = T_target_imu;

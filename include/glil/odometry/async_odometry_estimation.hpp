@@ -77,6 +77,7 @@ public:
   void get_results(std::vector<EstimationFrame::ConstPtr>& estimation_results, std::vector<EstimationFrame::ConstPtr>& marginalized_frames);
 
 private:
+  bool debug_frame_enabled(const PreprocessedFrame::ConstPtr& frame) const;
   void run();
 
 private:
@@ -95,6 +96,8 @@ private:
   ConcurrentVector<EstimationFrame::ConstPtr> output_marginalized_frames;
 
   bool enable_imu;
+  double debug_stamp_window_start;
+  double debug_stamp_window_end;
   std::atomic_int internal_frame_queue_size;
   std::shared_ptr<OdometryEstimationBase> odometry_estimation;
 
