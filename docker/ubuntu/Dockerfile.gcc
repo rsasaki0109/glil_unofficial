@@ -12,15 +12,16 @@ RUN apt-get update \
 # the force_fallback_interval / original_values additions (PR rsasaki0109/gtsam_points#1).
 ARG GTSAM_POINTS_REPO=https://github.com/rsasaki0109/gtsam_points.git
 ARG GTSAM_POINTS_REF=pr/force-fallback-determinism
-RUN git clone --depth 1 --recurse-submodules --branch ${GTSAM_POINTS_REF} ${GTSAM_POINTS_REPO} /root/gtsam_points \
-  && cmake -S /root/gtsam_points -B /root/gtsam_points/build \
+RUN rm -rf /root/gtsam_points_fork \
+  && git clone --depth 1 --recurse-submodules --branch ${GTSAM_POINTS_REF} ${GTSAM_POINTS_REPO} /root/gtsam_points_fork \
+  && cmake -S /root/gtsam_points_fork -B /root/gtsam_points_fork/build \
        -DBUILD_WITH_CUDA=OFF \
        -DBUILD_WITH_MARCH_NATIVE=OFF \
        -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_DEMO=OFF \
        -DCMAKE_BUILD_TYPE=Release \
-  && cmake --build /root/gtsam_points/build -j$(nproc) \
-  && cmake --install /root/gtsam_points/build \
-  && rm -rf /root/gtsam_points
+  && cmake --build /root/gtsam_points_fork/build -j$(nproc) \
+  && cmake --install /root/gtsam_points_fork/build \
+  && rm -rf /root/gtsam_points_fork
 
 # without viewer and CUDA
 COPY . /root/glil
