@@ -134,7 +134,7 @@ IntegratedVGICPCoresetFactor::IntegratedVGICPCoresetFactor(const IntegratedVGICP
 IntegratedVGICPCoresetFactor::~IntegratedVGICPCoresetFactor() {}
 
 gtsam::NonlinearFactor::shared_ptr IntegratedVGICPCoresetFactor::clone() const {
-  return std::make_shared<IntegratedVGICPCoresetFactor>(*this);
+  return gtsam::NonlinearFactor::shared_ptr(new IntegratedVGICPCoresetFactor(*this));
 }
 
 double IntegratedVGICPCoresetFactor::error(const gtsam::Values& values) const {
@@ -158,9 +158,9 @@ gtsam::GaussianFactor::shared_ptr IntegratedVGICPCoresetFactor::linearize(const 
   const double error = snapshot ? evaluate_snapshot(*snapshot, &H_target, &H_source, &H_target_source, &b_target, &b_source) : 0.0;
 
   if (is_binary) {
-    return std::make_shared<gtsam::HessianFactor>(keys()[0], keys()[1], H_target, H_target_source, -b_target, H_source, -b_source, error);
+    return gtsam::GaussianFactor::shared_ptr(new gtsam::HessianFactor(keys()[0], keys()[1], H_target, H_target_source, -b_target, H_source, -b_source, error));
   }
-  return std::make_shared<gtsam::HessianFactor>(keys()[0], H_source, -b_source, error);
+  return gtsam::GaussianFactor::shared_ptr(new gtsam::HessianFactor(keys()[0], H_source, -b_source, error));
 }
 
 void IntegratedVGICPCoresetFactor::update_correspondences(const Eigen::Isometry3d& delta) const {
