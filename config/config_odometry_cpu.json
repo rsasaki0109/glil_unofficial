@@ -4,6 +4,9 @@
   // use_isam2_dogleg            : Use the dogleg optimizer as the backend of ISAM2 that is slow but more robust
   // isam2_relinearize_skip      :
   // isam2_relinearize_thresh    :
+  // trace_history_size          : Keep this many recent frames in a ring buffer and dump only on anomaly events (0=off)
+  // trace_following_frames      : Continue dumping this many frames after the trigger frame
+  // trace_filtered_points_threshold : Trigger trace when filtered points are <= this threshold
   */
   "odometry_estimation": {
     "so_name": "libodometry_estimation_cpu.so",
@@ -32,6 +35,13 @@
     // Optimizer params
     "validate_imu": true,
     "save_imu_rate_trajectory": true,
+    "trace_history_size": 0,
+    "trace_following_frames": 4,
+    "trace_filtered_points_threshold": 256,
+    "trace_on_empty_frame": true,
+    "trace_on_sparse_frame": true,
+    "trace_on_imu_starvation": true,
+    "trace_on_smoother_fallback": true,
     "num_threads": 2
   }
 }

@@ -26,7 +26,8 @@ namespace glil {
 
 LooseInitialStateEstimation::LooseInitialStateEstimation(const Eigen::Isometry3d& T_lidar_imu, const Eigen::Matrix<double, 6, 1>& imu_bias) : T_lidar_imu(T_lidar_imu) {
   glil::Config config(glil::GlobalConfig::get_config_path("config_odometry"));
-  num_threads = config.param("odometry_estimation", "num_threads", 2);
+  const int default_num_threads = config.param("odometry_estimation", "num_threads", 2);
+  num_threads = config.param("odometry_estimation", "initialization_num_threads", default_num_threads);
   window_size = config.param("odometry_estimation", "initialization_window_size", 1.0);
 
   target_ivox.reset(new gtsam_points::iVox(1.0));

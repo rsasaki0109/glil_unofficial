@@ -1,7 +1,11 @@
 #pragma once
 
+#include <deque>
+#include <limits>
 #include <memory>
 #include <random>
+#include <string>
+#include <vector>
 
 #include <boost/shared_ptr.hpp>
 #include <glil/odometry/odometry_estimation_base.hpp>
@@ -55,13 +59,27 @@ public:
   bool use_isam2_dogleg;
   double isam2_relinearize_skip;
   double isam2_relinearize_thresh;
+  int force_fallback_interval;
 
   // Logging params
   bool save_imu_rate_trajectory;
   int debug_frame_window_start;
   int debug_frame_window_end;
+  double debug_stamp_window_start;
+  double debug_stamp_window_end;
+  int trace_history_size;
+  int trace_following_frames;
+  int trace_filtered_points_threshold;
+  bool trace_on_empty_frame;
+  bool trace_on_sparse_frame;
+  bool trace_on_imu_starvation;
+  bool trace_on_smoother_fallback;
+  bool debug_digest;
 
   int num_threads;
+  int registration_num_threads;
+  int covariance_num_threads;
+  int initialization_num_threads;
 };
 
 /**
@@ -84,7 +102,36 @@ protected:
 
   virtual void fallback_smoother() {}
   virtual void update_frames(const int current, const gtsam::NonlinearFactorGraph& new_factors);
-  bool debug_frame_enabled(int frame_id) const;
+  bool debug_frame_enabled(int frame_id, double stamp) const;
+  bool compact_trace_enabled() const;
+
+  struct CompactTraceEntry {
+    int frame_id = -1;
+    int sequence_id = -1;
+    double stamp = std::numeric_limits<double>::quiet_NaN();
+    double input_stamp = std::numeric_limits<double>::quiet_NaN();
+    double scan_end_time = std::numeric_limits<double>::quiet_NaN();
+    double prediction_dt = std::numeric_limits<double>::quiet_NaN();
+    double scan_duration = std::numeric_limits<double>::quiet_NaN();
+    int raw_points = 0;
+    int filtered_points = 0;
+    int num_imu_integrated = -1;
+    std::string prediction_source = "n/a";
+    double last_velocity_norm = std::numeric_limits<double>::quiet_NaN();
+    double predicted_velocity_norm = std::numeric_limits<double>::quiet_NaN();
+    double predicted_relative_speed = std::numeric_limits<double>::quiet_NaN();
+    double predicted_acceleration = std::numeric_limits<double>::quiet_NaN();
+    double estimated_velocity_norm = std::numeric_limits<double>::quiet_NaN();
+    std::string last_lidar_pose = "n/a";
+    std::string predicted_lidar_pose = "n/a";
+    std::string estimated_lidar_pose = "n/a";
+    bool smoother_fallback = false;
+  };
+
+  void record_compact_trace(const CompactTraceEntry& entry);
+  void trigger_compact_trace(const CompactTraceEntry& entry, const std::vector<std::string>& reasons);
+  void dump_compact_trace_entry(const CompactTraceEntry& entry, const char* phase) const;
+  std::string join_trace_reasons(const std::vector<std::string>& reasons) const;
 
 protected:
   std::unique_ptr<OdometryEstimationIMUParams> params;
@@ -106,6 +153,9 @@ protected:
   // Optimizer
   using FixedLagSmootherExt = gtsam_points::IncrementalFixedLagSmootherExtWithFallback;
   std::unique_ptr<FixedLagSmootherExt> smoother;
+  std::deque<CompactTraceEntry> compact_trace_history;
+  int compact_trace_active_until = -1;
+  int compact_trace_last_dumped_frame = -1;
 };
 
 }  // namespace glil

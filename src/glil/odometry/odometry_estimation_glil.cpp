@@ -14,6 +14,9 @@
 #include <gtsam_points/optimizers/incremental_fixed_lag_smoother_with_fallback.hpp>
 
 #include <glil/util/config.hpp>
+#ifdef GLIL_PROFILE_TIMING
+#include <glil/util/perftime.hpp>
+#endif
 #include <glil/common/imu_integration.hpp>
 #include <glil/common/cloud_deskewing.hpp>
 #include <glil/common/cloud_covariance_estimation.hpp>
@@ -61,6 +64,22 @@ OdometryEstimationGLILParams::OdometryEstimationGLILParams() : OdometryEstimatio
   coreset_params.relinearize_thresh_rot = config.param<double>("odometry_estimation", "coreset_relinearize_thresh_rot", 0.25);
   coreset_params.coreset_target_size = config.param<int>("odometry_estimation", "coreset_target_size", 256);
   coreset_params.coreset_num_clusters = config.param<int>("odometry_estimation", "coreset_num_clusters", 64);
+  coreset_method = config.param<std::string>("odometry_estimation", "coreset_method", "exact_caratheodory");
+  correspondence_sample_ratio = config.param<double>("odometry_estimation", "correspondence_sample_ratio", 1.0);
+  coreset_factor_lock = config.param<bool>("odometry_estimation", "coreset_factor_lock", false);
+  coreset_immutable_snapshot = config.param<bool>("odometry_estimation", "coreset_immutable_snapshot", false);
+  if (coreset_method != "exact_caratheodory" && coreset_method != "uniform_sample" &&
+      coreset_method != "uniform_sample_early" && coreset_method != "residual_weighted") {
+    spdlog::warn("unknown coreset_method={}; falling back to exact_caratheodory", coreset_method);
+    coreset_method = "exact_caratheodory";
+  }
+  if (correspondence_sample_ratio < 0.0) {
+    spdlog::warn("correspondence_sample_ratio={} is below 0.0; clamping to 0.0", correspondence_sample_ratio);
+    correspondence_sample_ratio = 0.0;
+  } else if (correspondence_sample_ratio > 1.0) {
+    spdlog::warn("correspondence_sample_ratio={} is above 1.0; clamping to 1.0", correspondence_sample_ratio);
+    correspondence_sample_ratio = 1.0;
+  }
 }
 
 OdometryEstimationGLILParams::~OdometryEstimationGLILParams() {}
@@ -108,6 +127,9 @@ void OdometryEstimationGLIL::update_frames(const int current, const gtsam::Nonli
 }
 
 gtsam::NonlinearFactorGraph OdometryEstimationGLIL::create_factors(const int current, const std::shared_ptr<gtsam::ImuFactor>& imu_factor, gtsam::Values& new_values) {
+#ifdef GLIL_PROFILE_TIMING
+  perftime::ScopedTimer profile_create_factors(perftime::Counter::CreateFactors);
+#endif
   if (current == 0 || !frames[current]->frame->size()) {
     return gtsam::NonlinearFactorGraph();
   }
@@ -120,13 +142,22 @@ gtsam::NonlinearFactorGraph OdometryEstimationGLIL::create_factors(const int cur
   vgicp_coreset_params.relinearize_thresh_rot = glil_params->coreset_params.relinearize_thresh_rot;
   vgicp_coreset_params.coreset_target_size = glil_params->coreset_params.coreset_target_size;
   vgicp_coreset_params.coreset_num_clusters = glil_params->coreset_params.coreset_num_clusters;
-  vgicp_coreset_params.num_threads = glil_params->num_threads;
+  vgicp_coreset_params.coreset_method = glil_params->coreset_method;
+  vgicp_coreset_params.correspondence_sample_ratio = glil_params->correspondence_sample_ratio;
+  vgicp_coreset_params.num_threads = glil_params->registration_num_threads;
+  vgicp_coreset_params.coreset_factor_lock = glil_params->coreset_factor_lock;
+  vgicp_coreset_params.coreset_immutable_snapshot = glil_params->coreset_immutable_snapshot;
+  vgicp_coreset_params.debug_digest = glil_params->debug_digest;
+  vgicp_coreset_params.debug_frame_id = current;
+  int debug_factor_idx = 0;
 
   // Lambda to create a binary VGICP factor with true coreset extraction
   const auto create_binary_factor = [&](gtsam::NonlinearFactorGraph& factors, gtsam::Key target_key, gtsam::Key source_key, const EstimationFrame::ConstPtr& target,
                                         const EstimationFrame::ConstPtr& source) {
     for (const auto& voxelmap : target->voxelmaps) {
-      auto factor = std::make_shared<IntegratedVGICPCoresetFactor>(target_key, source_key, voxelmap, source->frame, vgicp_coreset_params);
+      auto factor_params = vgicp_coreset_params;
+      factor_params.debug_factor_idx = debug_factor_idx++;
+      auto factor = std::make_shared<IntegratedVGICPCoresetFactor>(target_key, source_key, voxelmap, source->frame, factor_params);
       factors.add(factor);
     }
   };
@@ -135,7 +166,9 @@ gtsam::NonlinearFactorGraph OdometryEstimationGLIL::create_factors(const int cur
   const auto create_unary_factor = [&](gtsam::NonlinearFactorGraph& factors, const gtsam::Pose3& fixed_target_pose, gtsam::Key source_key,
                                        const EstimationFrame::ConstPtr& target, const EstimationFrame::ConstPtr& source) {
     for (const auto& voxelmap : target->voxelmaps) {
-      auto factor = std::make_shared<IntegratedVGICPCoresetFactor>(fixed_target_pose, source_key, voxelmap, source->frame, vgicp_coreset_params);
+      auto factor_params = vgicp_coreset_params;
+      factor_params.debug_factor_idx = debug_factor_idx++;
+      auto factor = std::make_shared<IntegratedVGICPCoresetFactor>(fixed_target_pose, source_key, voxelmap, source->frame, factor_params);
       factors.add(factor);
     }
   };

@@ -12,6 +12,14 @@ class logger;
 
 namespace glil {
 
+struct AsyncGlobalMappingStats {
+  int workload = 0;
+  int max_workload = 0;
+  int max_batch_size = 0;
+  double current_submap_lag_sec = 0.0;
+  double max_submap_lag_sec = 0.0;
+};
+
 /**
  * @brief Global mapping executor to wrap and asynchronously run a global mapping object
  * @note  All the exposed public methods except for save() are thread-safe
@@ -64,6 +72,11 @@ public:
   int workload() const;
 
   /**
+   * @brief Snapshot async workload / lag stats
+   */
+  AsyncGlobalMappingStats stats() const;
+
+  /**
    * @brief Save the mapping result
    * @note  This method may not be thread-safe and is expected to be called after join()
    * @param path    Save path
@@ -87,6 +100,12 @@ private:
   int optimization_interval;
   std::atomic_bool request_to_optimize;
   std::atomic<double> request_to_find_overlapping_submaps;
+  std::atomic_int internal_submap_queue_size;
+  std::atomic_int max_submap_queue_size;
+  std::atomic_int max_batch_submap_count;
+  std::atomic<double> latest_input_submap_stamp;
+  std::atomic<double> latest_processed_submap_stamp;
+  std::atomic<double> max_submap_lag_sec;
 
   std::mutex global_mapping_mutex;
   std::shared_ptr<glil::GlobalMappingBase> global_mapping;

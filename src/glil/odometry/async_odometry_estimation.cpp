@@ -1,6 +1,7 @@
 #include <glil/odometry/async_odometry_estimation.hpp>
 
 #include <spdlog/spdlog.h>
+#include <glil/util/config.hpp>
 #include <glil/util/logging.hpp>
 
 namespace glil {
@@ -8,7 +9,10 @@ namespace glil {
 AsyncOdometryEstimation::AsyncOdometryEstimation(const std::shared_ptr<OdometryEstimationBase>& odometry_estimation, bool enable_imu)
 : odometry_estimation(odometry_estimation),
   logger(create_module_logger("odom")) {
+  Config config(GlobalConfig::get_config_path("config_odometry"));
   this->enable_imu = enable_imu;
+  debug_stamp_window_start = config.param<double>("odometry_estimation", "debug_stamp_window_start", -1.0);
+  debug_stamp_window_end = config.param<double>("odometry_estimation", "debug_stamp_window_end", -1.0);
   kill_switch = false;
   end_of_sequence = false;
   internal_frame_queue_size = 0;
@@ -38,6 +42,16 @@ void AsyncOdometryEstimation::insert_twist(const double stamp, const double line
 
 void AsyncOdometryEstimation::insert_frame(const PreprocessedFrame::Ptr& frame) {
   input_frame_queue.push_back(frame);
+  if (debug_frame_enabled(frame)) {
+    logger->info("odom-async-enqueue seq={} stamp={:.6f} input_stamp={:.6f} scan_end={:.6f} raw_points={} points={} queue_after={}",
+                 frame->debug_sequence_id,
+                 frame->stamp,
+                 frame->debug_input_stamp,
+                 frame->scan_end_time,
+                 frame->debug_raw_points,
+                 frame->size(),
+                 input_frame_queue.size());
+  }
 }
 
 void AsyncOdometryEstimation::join() {
@@ -54,6 +68,19 @@ int AsyncOdometryEstimation::workload() const {
 void AsyncOdometryEstimation::get_results(std::vector<EstimationFrame::ConstPtr>& estimation_results, std::vector<EstimationFrame::ConstPtr>& marginalized_frames) {
   estimation_results = output_estimation_results.get_all_and_clear();
   marginalized_frames = output_marginalized_frames.get_all_and_clear();
+}
+
+bool AsyncOdometryEstimation::debug_frame_enabled(const PreprocessedFrame::ConstPtr& frame) const {
+  if (!frame || debug_stamp_window_start < 0.0) {
+    return false;
+  }
+  if (frame->stamp < debug_stamp_window_start) {
+    return false;
+  }
+  if (debug_stamp_window_end >= debug_stamp_window_start && frame->stamp > debug_stamp_window_end) {
+    return false;
+  }
+  return true;
 }
 
 void AsyncOdometryEstimation::run() {
@@ -111,13 +138,36 @@ void AsyncOdometryEstimation::run() {
     }
 
     while (!raw_frames.empty()) {
-      if (!end_of_sequence && raw_frames.front()->scan_end_time > last_imu_time) {
-        logger->debug("waiting for IMU data (scan_end_time={:.6f}, last_imu_time={:.6f})", raw_frames.front()->scan_end_time, last_imu_time);
+      const auto& frame = raw_frames.front();
+      const bool debug_frame = debug_frame_enabled(frame);
+      if (!end_of_sequence && frame->scan_end_time > last_imu_time) {
+        logger->debug("waiting for IMU data (scan_end_time={:.6f}, last_imu_time={:.6f})", frame->scan_end_time, last_imu_time);
+        if (debug_frame) {
+          logger->info("odom-async-wait-imu seq={} stamp={:.6f} input_stamp={:.6f} scan_end={:.6f} raw_points={} points={} queue={} last_imu_time={:.6f}",
+                       frame->debug_sequence_id,
+                       frame->stamp,
+                       frame->debug_input_stamp,
+                       frame->scan_end_time,
+                       frame->debug_raw_points,
+                       frame->size(),
+                       raw_frames.size(),
+                       last_imu_time);
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         break;
       }
 
-      const auto& frame = raw_frames.front();
+      if (debug_frame) {
+        logger->info("odom-async-dequeue seq={} stamp={:.6f} input_stamp={:.6f} scan_end={:.6f} raw_points={} points={} queue_before={} last_imu_time={:.6f}",
+                     frame->debug_sequence_id,
+                     frame->stamp,
+                     frame->debug_input_stamp,
+                     frame->scan_end_time,
+                     frame->debug_raw_points,
+                     frame->size(),
+                     raw_frames.size(),
+                     last_imu_time);
+      }
       std::vector<EstimationFrame::ConstPtr> marginalized;
       auto state = odometry_estimation->insert_frame(frame, marginalized);
 
@@ -125,6 +175,14 @@ void AsyncOdometryEstimation::run() {
       output_marginalized_frames.insert(marginalized);
       raw_frames.pop_front();
       internal_frame_queue_size = raw_frames.size();
+      if (debug_frame) {
+        logger->info("odom-async-result seq={} stamp={:.6f} state={} marginalized={} queue_after={}",
+                     frame->debug_sequence_id,
+                     frame->stamp,
+                     state ? state->id : -1,
+                     marginalized.size(),
+                     raw_frames.size());
+      }
     }
   }
 

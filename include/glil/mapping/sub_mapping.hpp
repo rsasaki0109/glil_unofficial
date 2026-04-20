@@ -37,6 +37,8 @@ public:
   double keyframe_update_interval_rot;
   double keyframe_update_interval_trans;
   double max_keyframe_overlap;
+  int debug_frame_window_start;
+  int debug_frame_window_end;
 
   bool create_between_factors;
   std::string between_registration_type;
@@ -70,6 +72,8 @@ private:
   void insert_keyframe(const int current, const EstimationFrame::ConstPtr& odom_frame);
 
   SubMap::Ptr create_submap(bool force_create = false) const;
+  bool debug_frame_enabled(int frame_id) const;
+  bool debug_submap_enabled() const;
 
 private:
   using Params = SubMappingParams;
