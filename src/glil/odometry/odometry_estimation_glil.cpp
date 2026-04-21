@@ -135,6 +135,10 @@ gtsam::NonlinearFactorGraph OdometryEstimationGLIL::create_factors(const int cur
   }
 
   const auto glil_params = static_cast<OdometryEstimationGLILParams*>(this->params.get());
+  const bool digest_frame =
+    glil_params->debug_digest &&
+    (debug_frame_enabled(current, frames[current]->stamp) ||
+     (glil_params->debug_frame_window_start < 0 && glil_params->debug_stamp_window_start < 0.0));
 
   // Coreset params for VGICP factors
   IntegratedVGICPCoresetFactor::Params vgicp_coreset_params;
@@ -147,7 +151,7 @@ gtsam::NonlinearFactorGraph OdometryEstimationGLIL::create_factors(const int cur
   vgicp_coreset_params.num_threads = glil_params->registration_num_threads;
   vgicp_coreset_params.coreset_factor_lock = glil_params->coreset_factor_lock;
   vgicp_coreset_params.coreset_immutable_snapshot = glil_params->coreset_immutable_snapshot;
-  vgicp_coreset_params.debug_digest = glil_params->debug_digest;
+  vgicp_coreset_params.debug_digest = digest_frame;
   vgicp_coreset_params.debug_frame_id = current;
   int debug_factor_idx = 0;
 

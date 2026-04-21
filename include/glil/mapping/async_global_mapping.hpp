@@ -33,6 +33,10 @@ public:
    * @param optimization_interval  Optimizer is updated every this interval even if no additional values and factors are given
    */
   AsyncGlobalMapping(const std::shared_ptr<glil::GlobalMappingBase>& global_mapping, const int optimization_interval_sec = 5);
+  AsyncGlobalMapping(
+    const std::shared_ptr<glil::GlobalMappingBase>& global_mapping,
+    const int optimization_interval_sec,
+    bool deterministic_batching);
 
   /**
    * @brief Destroy the Async Global Mapping object
@@ -106,6 +110,7 @@ private:
   std::atomic<double> latest_input_submap_stamp;
   std::atomic<double> latest_processed_submap_stamp;
   std::atomic<double> max_submap_lag_sec;
+  bool deterministic_batching;
 
   std::mutex global_mapping_mutex;
   std::shared_ptr<glil::GlobalMappingBase> global_mapping;
