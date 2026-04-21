@@ -28,6 +28,7 @@ public:
    * @param sub_mapping sub mapping object
    */
   AsyncSubMapping(const std::shared_ptr<glil::SubMappingBase>& sub_mapping);
+  AsyncSubMapping(const std::shared_ptr<glil::SubMappingBase>& sub_mapping, bool deterministic_batching);
 
   /**
    * @brief Destroy the Async Sub Mapping object
@@ -101,6 +102,7 @@ private:
   std::atomic<double> latest_input_frame_stamp;
   std::atomic<double> latest_processed_frame_stamp;
   std::atomic<double> max_frame_lag_sec;
+  bool deterministic_batching;
 
   std::shared_ptr<glil::SubMappingBase> sub_mapping;
 };

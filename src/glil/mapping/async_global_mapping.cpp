@@ -3,11 +3,21 @@
 #include <spdlog/spdlog.h>
 
 #include <glil/util/logging.hpp>
+#include <glil/util/config.hpp>
 #include <glil/mapping/callbacks.hpp>
 
 namespace glil {
 
 namespace {
+bool deterministic_async_mapping_enabled() {
+  if (!GlobalConfig::inst) {
+    return false;
+  }
+
+  Config config(GlobalConfig::get_config_path("config_ros"));
+  return config.param<bool>("glil_ros", "deterministic_async_mapping", false);
+}
+
 void update_max(std::atomic_int& target, int value) {
   int current = target.load();
   while (current < value && !target.compare_exchange_weak(current, value)) {
@@ -29,8 +39,15 @@ double submap_stamp(const SubMap::Ptr& submap) {
 }  // namespace
 
 AsyncGlobalMapping::AsyncGlobalMapping(const std::shared_ptr<glil::GlobalMappingBase>& global_mapping, const int optimization_interval)
-: global_mapping(global_mapping),
-  optimization_interval(optimization_interval),
+: AsyncGlobalMapping(global_mapping, optimization_interval, deterministic_async_mapping_enabled()) {}
+
+AsyncGlobalMapping::AsyncGlobalMapping(
+  const std::shared_ptr<glil::GlobalMappingBase>& global_mapping,
+  const int optimization_interval,
+  bool deterministic_batching)
+: optimization_interval(optimization_interval),
+  deterministic_batching(deterministic_batching),
+  global_mapping(global_mapping),
   logger(create_module_logger("global")) {
   request_to_optimize = false;
   request_to_find_overlapping_submaps.store(-1.0);
@@ -72,6 +89,9 @@ void AsyncGlobalMapping::insert_submap(const SubMap::Ptr& submap) {
 
 void AsyncGlobalMapping::join() {
   end_of_sequence = true;
+  input_image_queue.submit_end_of_data();
+  input_imu_queue.submit_end_of_data();
+  input_submap_queue.submit_end_of_data();
   if (thread.joinable()) {
     thread.join();
   }
@@ -115,9 +135,23 @@ void AsyncGlobalMapping::run() {
   auto last_optimization_time = std::chrono::high_resolution_clock::now();
 
   while (!kill_switch) {
-    auto images = input_image_queue.get_all_and_clear();
-    auto imu_frames = input_imu_queue.get_all_and_clear();
-    auto submaps = input_submap_queue.get_all_and_clear();
+    std::vector<std::pair<double, cv::Mat>> images;
+    std::vector<Eigen::Matrix<double, 7, 1>> imu_frames;
+    std::vector<SubMap::Ptr> submaps;
+
+    if (deterministic_batching) {
+      auto submap = input_submap_queue.pop_wait();
+      if (submap) {
+        submaps.push_back(*submap);
+      }
+      images = input_image_queue.get_all_and_clear();
+      imu_frames = input_imu_queue.get_all_and_clear();
+    } else {
+      images = input_image_queue.get_all_and_clear();
+      imu_frames = input_imu_queue.get_all_and_clear();
+      submaps = input_submap_queue.get_all_and_clear();
+    }
+
     internal_submap_queue_size.store(submaps.size());
     update_max(max_batch_submap_count, submaps.size());
     update_max(max_submap_queue_size, workload());

@@ -45,6 +45,10 @@ uint64_t digest_pose(const Eigen::Isometry3d& pose) {
 uint64_t digest_vector3(const Eigen::Vector3d& v) {
   return fnv1a_doubles(v.data(), static_cast<std::size_t>(v.size()));
 }
+
+uint64_t digest_vector6(const Eigen::Matrix<double, 6, 1>& v) {
+  return fnv1a_doubles(v.data(), static_cast<std::size_t>(v.size()));
+}
 }  // namespace
 #endif
 
@@ -87,6 +91,7 @@ OdometryEstimationIMUParams::OdometryEstimationIMUParams() {
   trace_history_size = std::max(0, config.param<int>("odometry_estimation", "trace_history_size", 0));
   trace_following_frames = std::max(0, config.param<int>("odometry_estimation", "trace_following_frames", 4));
   trace_filtered_points_threshold = config.param<int>("odometry_estimation", "trace_filtered_points_threshold", 256);
+  skip_sparse_frame_threshold = config.param<int>("odometry_estimation", "skip_sparse_frame_threshold", -1);
   trace_on_empty_frame = config.param<bool>("odometry_estimation", "trace_on_empty_frame", true);
   trace_on_sparse_frame = config.param<bool>("odometry_estimation", "trace_on_sparse_frame", true);
   trace_on_imu_starvation = config.param<bool>("odometry_estimation", "trace_on_imu_starvation", true);
@@ -94,6 +99,7 @@ OdometryEstimationIMUParams::OdometryEstimationIMUParams() {
 
   Config logging_config(GlobalConfig::get_config_path("config_logging"));
   debug_digest = logging_config.param<bool>("logging", "debug_digest").value_or(false);
+  debug_digest = config.param<bool>("odometry_estimation", "debug_digest", debug_digest);
 
   num_threads = config.param<int>("odometry_estimation", "num_threads", 4);
   registration_num_threads = config.param<int>("odometry_estimation", "registration_num_threads", num_threads);
@@ -273,6 +279,8 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
   const auto profile_total_t0 = perftime::now();
 #endif
   const bool debug_frame = debug_frame_enabled(current, raw_frame->stamp);
+  const bool digest_frame =
+    params->debug_digest && (debug_frame || (params->debug_frame_window_start < 0 && params->debug_stamp_window_start < 0.0));
   CompactTraceEntry trace_entry;
   trace_entry.frame_id = current;
   trace_entry.sequence_id = raw_frame->debug_sequence_id;
@@ -315,6 +323,20 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
                  raw_frame->debug_input_stamp,
                  raw_frame->debug_raw_points,
                  raw_frame->size());
+    return nullptr;
+  }
+  if (params->skip_sparse_frame_threshold >= 0 && raw_frame->size() <= params->skip_sparse_frame_threshold) {
+    record_compact_trace(trace_entry);
+    trigger_compact_trace(trace_entry, trace_reasons);
+    logger->warn(
+      "insert_frame frame={} seq={} stamp={:.6f} input_stamp={:.6f} raw_points={} points={} sparse_skip_threshold={} -- skipping sparse frame",
+      current,
+      raw_frame->debug_sequence_id,
+      raw_frame->stamp,
+      raw_frame->debug_input_stamp,
+      raw_frame->debug_raw_points,
+      raw_frame->size(),
+      params->skip_sparse_frame_threshold);
     return nullptr;
   }
   Callbacks::on_insert_frame(raw_frame);
@@ -405,10 +427,10 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
     trigger_compact_trace(trace_entry, trace_reasons);
 
 #ifdef GLIL_PROFILE_TIMING
-    if (params->debug_digest) {
+    if (digest_frame) {
       const int digest_sequence = raw_frame->debug_sequence_id >= 0 ? raw_frame->debug_sequence_id : current;
       logger->info(
-        "[digest] frame={} seq={} stamp={:.9f} pose_digest={:016x} v_digest={:016x}",
+        "[digest] phase=post frame={} seq={} stamp={:.9f} pose_digest={:016x} v_digest={:016x}",
         current,
         digest_sequence,
         raw_frame->stamp,
@@ -533,6 +555,24 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
   new_values.insert(X(current), predicted_T_world_imu);
   new_values.insert(V(current), predicted_v_world_imu);
   new_values.insert(B(current), last_imu_bias);
+
+#ifdef GLIL_PROFILE_TIMING
+  if (digest_frame) {
+    const int digest_sequence = raw_frame->debug_sequence_id >= 0 ? raw_frame->debug_sequence_id : current;
+    logger->info(
+      "[digest] phase=predict frame={} seq={} stamp={:.9f} last_pose_digest={:016x} last_v_digest={:016x} pred_pose_digest={:016x} pred_v_digest={:016x} bias_digest={:016x} prediction_source={} num_imu={}",
+      current,
+      digest_sequence,
+      raw_frame->stamp,
+      digest_pose(Eigen::Isometry3d(last_T_world_imu.matrix())),
+      digest_vector3(last_v_world_imu),
+      digest_pose(Eigen::Isometry3d(predicted_T_world_imu.matrix())),
+      digest_vector3(predicted_v_world_imu),
+      digest_vector6(last_imu_bias.vector()),
+      prediction_source,
+      num_imu_integrated);
+  }
+#endif
 
   // Constant IMU bias assumption
   new_factors.add(
@@ -671,10 +711,10 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
   trigger_compact_trace(trace_entry, trace_reasons);
 
 #ifdef GLIL_PROFILE_TIMING
-  if (params->debug_digest) {
+  if (digest_frame) {
     const int digest_sequence = raw_frame->debug_sequence_id >= 0 ? raw_frame->debug_sequence_id : current;
     logger->info(
-      "[digest] frame={} seq={} stamp={:.9f} pose_digest={:016x} v_digest={:016x}",
+      "[digest] phase=post frame={} seq={} stamp={:.9f} pose_digest={:016x} v_digest={:016x}",
       current,
       digest_sequence,
       raw_frame->stamp,
@@ -718,6 +758,12 @@ std::vector<EstimationFrame::ConstPtr> OdometryEstimationIMU::get_remaining_fram
 void OdometryEstimationIMU::update_frames(int current, const gtsam::NonlinearFactorGraph& new_factors) {
   logger->trace("update frames current={} marginalized_cursor={}", current, marginalized_cursor);
 
+#ifdef GLIL_PROFILE_TIMING
+  const bool digest_frame =
+    params->debug_digest && current >= 0 && current < static_cast<int>(frames.size()) && frames[current] &&
+    (debug_frame_enabled(current, frames[current]->stamp) || (params->debug_frame_window_start < 0 && params->debug_stamp_window_start < 0.0));
+#endif
+
   for (int i = marginalized_cursor; i < frames.size(); i++) {
     try {
       Eigen::Isometry3d T_world_imu = Eigen::Isometry3d(smoother->calculateEstimate<gtsam::Pose3>(X(i)).matrix());
@@ -725,6 +771,16 @@ void OdometryEstimationIMU::update_frames(int current, const gtsam::NonlinearFac
       frames[i]->T_world_imu = T_world_imu;
       frames[i]->T_world_lidar = T_world_imu * T_imu_lidar;
       frames[i]->v_world_imu = v_world_imu;
+#ifdef GLIL_PROFILE_TIMING
+      if (digest_frame) {
+        logger->info(
+          "[digest] phase=update-active current={} frame={} pose_digest={:016x} v_digest={:016x}",
+          current,
+          i,
+          digest_pose(frames[i]->T_world_lidar),
+          digest_vector3(frames[i]->v_world_imu));
+      }
+#endif
     } catch (std::out_of_range& e) {
       logger->error("caught {}", e.what());
       logger->error("current={}", current);

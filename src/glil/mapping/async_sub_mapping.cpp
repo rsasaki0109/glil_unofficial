@@ -1,8 +1,19 @@
 #include <glil/mapping/async_sub_mapping.hpp>
 
+#include <glil/util/config.hpp>
+
 namespace glil {
 
 namespace {
+bool deterministic_async_mapping_enabled() {
+  if (!GlobalConfig::inst) {
+    return false;
+  }
+
+  Config config(GlobalConfig::get_config_path("config_ros"));
+  return config.param<bool>("glil_ros", "deterministic_async_mapping", false);
+}
+
 void update_max(std::atomic_int& target, int value) {
   int current = target.load();
   while (current < value && !target.compare_exchange_weak(current, value)) {
@@ -16,7 +27,12 @@ void update_max(std::atomic<double>& target, double value) {
 }
 }  // namespace
 
-AsyncSubMapping::AsyncSubMapping(const std::shared_ptr<glil::SubMappingBase>& sub_mapping) : sub_mapping(sub_mapping) {
+AsyncSubMapping::AsyncSubMapping(const std::shared_ptr<glil::SubMappingBase>& sub_mapping)
+: AsyncSubMapping(sub_mapping, deterministic_async_mapping_enabled()) {}
+
+AsyncSubMapping::AsyncSubMapping(const std::shared_ptr<glil::SubMappingBase>& sub_mapping, bool deterministic_batching)
+: deterministic_batching(deterministic_batching),
+  sub_mapping(sub_mapping) {
   kill_switch = false;
   end_of_sequence = false;
   internal_frame_queue_size = 0;
@@ -53,6 +69,9 @@ void AsyncSubMapping::insert_frame(const EstimationFrame::ConstPtr& odom_frame) 
 
 void AsyncSubMapping::join() {
   end_of_sequence = true;
+  input_image_queue.submit_end_of_data();
+  input_imu_queue.submit_end_of_data();
+  input_frame_queue.submit_end_of_data();
   if (thread.joinable()) {
     thread.join();
   }
@@ -87,9 +106,23 @@ void AsyncSubMapping::run() {
     current_output_submap_queue_size.store(output_submap_queue.size());
     update_max(max_output_submap_queue_size, current_output_submap_queue_size.load());
 
-    auto images = input_image_queue.get_all_and_clear();
-    auto imu_frames = input_imu_queue.get_all_and_clear();
-    auto odom_frames = input_frame_queue.get_all_and_clear();
+    std::vector<std::pair<double, cv::Mat>> images;
+    std::vector<Eigen::Matrix<double, 7, 1>> imu_frames;
+    std::vector<EstimationFrame::ConstPtr> odom_frames;
+
+    if (deterministic_batching) {
+      auto odom_frame = input_frame_queue.pop_wait();
+      if (odom_frame) {
+        odom_frames.push_back(*odom_frame);
+      }
+      images = input_image_queue.get_all_and_clear();
+      imu_frames = input_imu_queue.get_all_and_clear();
+    } else {
+      images = input_image_queue.get_all_and_clear();
+      imu_frames = input_imu_queue.get_all_and_clear();
+      odom_frames = input_frame_queue.get_all_and_clear();
+    }
+
     internal_frame_queue_size.store(odom_frames.size());
     update_max(max_batch_frame_count, odom_frames.size());
     update_max(max_frame_queue_size, workload());

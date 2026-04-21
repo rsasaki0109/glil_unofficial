@@ -70,6 +70,7 @@ public:
   int trace_history_size;
   int trace_following_frames;
   int trace_filtered_points_threshold;
+  int skip_sparse_frame_threshold;
   bool trace_on_empty_frame;
   bool trace_on_sparse_frame;
   bool trace_on_imu_starvation;

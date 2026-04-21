@@ -109,26 +109,10 @@ IntegratedVGICPCoresetFactor::IntegratedVGICPCoresetFactor(const IntegratedVGICP
   coreset_params(other.coreset_params),
   target_voxels(other.target_voxels),
   source(other.source) {
-  const auto copy_mutable_cache = [&] {
-    linearization_point = other.linearization_point;
-    correspondences = other.correspondences;
-    mahalanobis = other.mahalanobis;
-    coreset_valid = other.coreset_valid;
-    last_coreset_delta = other.last_coreset_delta;
-    coreset_indices = other.coreset_indices;
-    coreset_residual_rows = other.coreset_residual_rows;
-    coreset_weights = other.coreset_weights;
-    snapshot_ = other.snapshot_;
-    debug_count = other.debug_count;
-  };
-
-  if (coreset_params.coreset_factor_lock || coreset_params.coreset_immutable_snapshot) {
-    std::lock_guard<std::mutex> lock(other.coreset_mutex_);
-    copy_mutable_cache();
-    return;
-  }
-
-  copy_mutable_cache();
+  linearization_point.setIdentity();
+  last_coreset_delta.setIdentity();
+  coreset_valid = false;
+  debug_count = 0;
 }
 
 IntegratedVGICPCoresetFactor::~IntegratedVGICPCoresetFactor() {}
