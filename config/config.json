@@ -1,7 +1,7 @@
 {
   /*** Global Configuration ***/
   "global": {
-    "config_path": "",
+    "config_path": "/media/sasaki/aiueo/ai_coding_ws/glil_ws/glil_unofficial/config_submap_cpu",
     "config_ros": "config_ros.json",
     "config_viewer": "config_viewer.json",
     "config_sensors": "config_sensors.json",

@@ -99,5 +99,11 @@ private:
 
   std::unique_ptr<gtsam_points::ISAM2Ext> isam2;
   bool isam2_corrupted = false;
+
+  std::unique_ptr<gtsam::NonlinearFactorGraph> last_good_graph;
+  std::unique_ptr<gtsam::Values> last_good_values;
+  bool last_good_snapshot_valid = false;
+
+  void refresh_last_good_snapshot();
 };
 }  // namespace glil

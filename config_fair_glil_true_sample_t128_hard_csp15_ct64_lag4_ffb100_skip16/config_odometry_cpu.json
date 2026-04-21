@@ -1,0 +1,58 @@
+{
+  /*** Keyframe-based VGICP odometry estimation ***
+  // smoother_lag                : Fixed-lag smoothing window size [sec]
+  // use_isam2_dogleg            : Use the dogleg optimizer as the backend of ISAM2 that is slow but more robust
+  // isam2_relinearize_skip      :
+  // isam2_relinearize_thresh    :
+  // trace_history_size          : Keep recent frames and dump only around anomaly events (0=off)
+  // trace_following_frames      : Continue dumping this many frames after a trigger
+  // trace_filtered_points_threshold : Trigger trace when filtered points are <= this threshold
+  */
+  "odometry_estimation": {
+    "so_name": "libodometry_estimation_glil.so",
+    // Initialization params
+    "initialization_mode": "LOOSE",
+    "initialization_window_size": 3.0,
+    "init_pose_damping_scale": 1e10,
+    // Optimizer params
+    "smoother_lag": 4.0,
+    "force_fallback_interval": 100,
+    "use_isam2_dogleg": false,
+    "isam2_relinearize_skip": 1,
+    "isam2_relinearize_thresh": 0.1,
+    "fix_imu_bias": false,
+    // Registration settings
+    "registration_type": "GICP",
+    "max_iterations": 8,
+    "lru_thresh": 100,
+    "target_downsampling_rate": 0.1,
+    "full_connection_window_size": 1,
+    "voxelmap_levels": 1,
+    "max_num_keyframes": 2,
+    "coreset_target_size": 64,
+    "correspondence_sample_ratio": 0.15,
+    "coreset_method": "uniform_sample",
+    // GICP + iVox params
+    "ivox_resolution": 1.0,
+    "ivox_min_dist": 0.1,
+    // VGICP params
+    "vgicp_resolution": 0.5,
+    "vgicp_voxelmap_levels": 1,
+    "vgicp_voxelmap_scaling_factor": 2.0,
+    // Optimizer params
+    "validate_imu": true,
+    "save_imu_rate_trajectory": true,
+    "trace_history_size": 0,
+    "trace_following_frames": 4,
+    "trace_filtered_points_threshold": 256,
+    "skip_sparse_frame_threshold": 16,
+    "trace_on_empty_frame": true,
+    "trace_on_sparse_frame": true,
+    "trace_on_imu_starvation": true,
+    "trace_on_smoother_fallback": true,
+    "num_threads": 1,
+    "registration_num_threads": 1,
+    "covariance_num_threads": 1,
+    "initialization_num_threads": 1
+  }
+}

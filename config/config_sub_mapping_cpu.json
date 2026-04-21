@@ -6,8 +6,9 @@
   // --- Keyframe management ---
   // max_num_keyframes              : Maximum number of keyframes in a submap
   // keyframe_update_strategy       : "DISPLACEMENT" or "OVERLAP"
-  // keyframe_update_interval_*     : Threshold for "DISPLACEMENT" strategy
-  // max_keyframe_overlap           : Threshold for "OVERLAP" strategy
+   // keyframe_update_interval_*     : Threshold for "DISPLACEMENT" strategy
+   // max_keyframe_overlap           : Threshold for "OVERLAP" strategy
+   // debug_frame_window_start/end  : Emit submap-dbg-* logs only for frame ids within this window (-1=off)
 
   // --- Relative pose factors ---
   // create_between_factors         : If true, create SE3 relative pose factors between consecutive frames (i.e., odom_factor)
@@ -35,6 +36,8 @@
     "keyframe_update_interval_rot": 3.14,
     "keyframe_update_interval_trans": 1.0,
     "max_keyframe_overlap": 0.6,
+    "debug_frame_window_start": -1,
+    "debug_frame_window_end": -1,
     // Relative pose factors
     "create_between_factors": false,
     "between_registration_type": "GICP",

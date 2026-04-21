@@ -1,0 +1,39 @@
+{
+  "glil_ros": {
+    // Backend modules
+    "enable_local_mapping": true,
+    "enable_global_mapping": true,
+    "deterministic_async_mapping": true,
+    // Points config
+    "keep_raw_points": false,
+    // IMU config
+    "imu_time_offset": 0.0,
+    "points_time_offset": 0.0,
+    "acc_scale": 9.80665,
+    // TF config
+    "imu_frame_id": "",
+    "lidar_frame_id": "",
+    "base_frame_id": "",
+    "odom_frame_id": "odom",
+    "map_frame_id": "map",
+    "publish_imu2lidar": true,
+    "tf_time_offset": 1e-6,
+    // Extension modules
+    "extension_modules": [],
+    // Topics
+    "imu_topic": "/livox/imu",
+    "points_topic": "/livox/points",
+    "image_topic": "/image",
+    // QoS options
+    "imu_qos": {
+      "profile": "sensor_data",
+      "depth": 1000
+    },
+    "points_qos": {
+      "profile": "sensor_data"
+    },
+    "image_qos": {
+      "profile": "sensor_data"
+    }
+  }
+}
