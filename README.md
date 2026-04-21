@@ -19,6 +19,27 @@
 
 Tested on Ubuntu 22.04 /24.04 with CUDA 12.2, and NVIDIA Jetson Orin.
 
+## Fork Reproduction Notes
+
+This fork carries the 2026-04 GLIL CPU reproduction session configs and depends
+on `rsasaki0109/gtsam_points#1` for the opt-in fixed-lag smoother fallback
+cadence and the `FastOccupancyGrid` coordinate guard.
+
+Recommended local-result configs:
+
+| dataset | config | result |
+|---|---|---|
+| `indoor_easy_01` | `config_fair_glil_true_sample_t128_indoor_d4k_k1_rw_csp15_ct64_lag4` | RMSE `1.019 m`, Track B+C PASS |
+| `outdoor_hard_01a` | `config_fair_glil_true_sample_t128_hard_csp15_ct64_lag4_ffb100_skip16` | RMSE `0.906313`, 5/5 byte-identical, Track B+C PASS |
+| `outdoor_kidnap_a` | `config_fair_glil_true_sample_t128_k1` | RMSE `20.349845`, Track B+C PASS |
+
+The official GLIM/GLIL Ouster sample `os1_128_01_downsampled` is covered by
+`config_official_os1_128_01_downsampled_acc1`. That bag publishes IMU
+accelerations in m/s^2, so `glil_ros.acc_scale` must be `1.0`; using `9.80665`
+is an invalid scale for this sample and can drive occupancy coordinates out of
+range. With the guarded `gtsam_points` dependency, the corrected config
+completed `1123` frames with fallback `0` and bitset abort `0`.
+
 If you find this package useful for your project, please consider leaving a comment [here](https://github.com/koide3/glim/issues/19). It would help the author receive recognition in his organization and keep working on this project.
 
 [![Build](https://github.com/koide3/glim/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/glim/actions/workflows/build.yml)
