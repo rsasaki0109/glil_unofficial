@@ -7,6 +7,16 @@
 
 namespace glil {
 
+struct AsyncSubMappingStats {
+  int workload = 0;
+  int max_workload = 0;
+  int max_batch_size = 0;
+  int output_submap_queue_size = 0;
+  int max_output_submap_queue_size = 0;
+  double current_frame_lag_sec = 0.0;
+  double max_frame_lag_sec = 0.0;
+};
+
 /**
  * @brief SubMapping executor to wrap and asynchronously run a sub mapping object
  * @note  All the exposed public methods are thread-safe
@@ -18,6 +28,7 @@ public:
    * @param sub_mapping sub mapping object
    */
   AsyncSubMapping(const std::shared_ptr<glil::SubMappingBase>& sub_mapping);
+  AsyncSubMapping(const std::shared_ptr<glil::SubMappingBase>& sub_mapping, bool deterministic_batching);
 
   /**
    * @brief Destroy the Async Sub Mapping object
@@ -59,6 +70,11 @@ public:
   int workload() const;
 
   /**
+   * @brief Snapshot async workload / lag stats
+   */
+  AsyncSubMappingStats stats() const;
+
+  /**
    * @brief Get the created submaps
    * @return Created submaps
    */
@@ -77,6 +93,16 @@ private:
   ConcurrentVector<EstimationFrame::ConstPtr> input_frame_queue;
 
   ConcurrentVector<SubMap::Ptr> output_submap_queue;
+
+  std::atomic_int internal_frame_queue_size;
+  std::atomic_int max_frame_queue_size;
+  std::atomic_int max_batch_frame_count;
+  std::atomic_int current_output_submap_queue_size;
+  std::atomic_int max_output_submap_queue_size;
+  std::atomic<double> latest_input_frame_stamp;
+  std::atomic<double> latest_processed_frame_stamp;
+  std::atomic<double> max_frame_lag_sec;
+  bool deterministic_batching;
 
   std::shared_ptr<glil::SubMappingBase> sub_mapping;
 };

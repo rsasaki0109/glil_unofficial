@@ -13,6 +13,7 @@ option(BUILD_WITH_CUDA "Build with GPU support" OFF)
 option(BUILD_WITH_CUDA_MULTIARCH "Build with GPU cross-platform support" OFF)
 option(BUILD_WITH_VIEWER "Build with visualizer" ON)
 option(BUILD_WITH_MARCH_NATIVE "Build with -march=native" OFF)
+option(GLIL_PROFILE_TIMING "Emit per-frame TRUE GLIL timing logs" ON)
 
 if(BUILD_WITH_MARCH_NATIVE)
   add_definitions(-march=native)
@@ -99,6 +100,9 @@ add_library(glil SHARED
   # GPU-related
   ${GPU_SRCS}
 )
+if(GLIL_PROFILE_TIMING)
+  target_compile_definitions(glil PRIVATE GLIL_PROFILE_TIMING)
+endif()
 target_include_directories(glil PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/json/include>

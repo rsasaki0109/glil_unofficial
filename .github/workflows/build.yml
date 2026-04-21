@@ -60,7 +60,7 @@ jobs:
           context: .
           file: docker/ubuntu/Dockerfile.${{ matrix.suffix }}
           build-args: |
-            BASE_IMAGE=koide3/gtsam_points:${{ matrix.ubuntu }}
+            BASE_IMAGE=koide3/gtsam_points:${{ matrix.ubuntu }}_gtsam4.3a0
           tags: glil-unofficial-ci:${{ matrix.name }}
           pull: true
           push: false
@@ -98,7 +98,7 @@ jobs:
           context: .
           file: docker/ubuntu/Dockerfile.${{ matrix.suffix }}
           build-args: |
-            BASE_IMAGE=koide3/gtsam_points:${{ matrix.ubuntu }}
+            BASE_IMAGE=koide3/gtsam_points:${{ matrix.ubuntu }}_gtsam4.3a0
           tags: glil-unofficial-ci:${{ matrix.name }}
           pull: true
           push: false

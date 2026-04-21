@@ -7,8 +7,31 @@
 #include <gtsam_points/types/point_cloud_cpu.hpp>
 
 #include <glil/util/config.hpp>
+#ifdef GLIL_PROFILE_TIMING
+#include <atomic>
+
+#include <glil/util/digest.hpp>
+#include <glil/util/logging.hpp>
+#endif
 
 namespace glil {
+
+#ifdef GLIL_PROFILE_TIMING
+namespace {
+bool debug_digest_enabled() {
+  static const bool enabled = [] {
+    Config logging_config(GlobalConfig::get_config_path("config_logging"));
+    return logging_config.param<bool>("logging", "debug_digest").value_or(false);
+  }();
+  return enabled;
+}
+
+int next_digest_frame_id() {
+  static std::atomic<int> frame_id{0};
+  return frame_id++;
+}
+}  // namespace
+#endif
 
 CloudPreprocessorParams::CloudPreprocessorParams() {
   Config config(GlobalConfig::get_config_path("config_preprocess"));
@@ -39,6 +62,10 @@ CloudPreprocessor::~CloudPreprocessor() {}
 
 PreprocessedFrame::Ptr CloudPreprocessor::preprocess(const RawPoints::ConstPtr& raw_points) {
   spdlog::trace("preprocessing input: {} points", raw_points->size());
+#ifdef GLIL_PROFILE_TIMING
+  const bool debug_digest = debug_digest_enabled();
+  const int digest_frame_id = debug_digest ? next_digest_frame_id() : -1;
+#endif
 
   gtsam_points::PointCloud::Ptr frame(new gtsam_points::PointCloud);
   frame->num_points = raw_points->size();
@@ -101,6 +128,14 @@ PreprocessedFrame::Ptr CloudPreprocessor::preprocess(const RawPoints::ConstPtr& 
 
   preprocessed->k_neighbors = params.k_correspondences;
   preprocessed->neighbors = find_neighbors(frame->points, frame->size(), params.k_correspondences);
+
+#ifdef GLIL_PROFILE_TIMING
+  if (debug_digest) {
+    const double* point_data = preprocessed->points.empty() ? nullptr : preprocessed->points.front().data();
+    const uint64_t points_digest = fnv1a_doubles(point_data, static_cast<std::size_t>(preprocessed->points.size()) * 4);
+    create_module_logger("odom")->info("[digest] frame={} filtered_size={} digest_points={:016x}", digest_frame_id, preprocessed->size(), points_digest);
+  }
+#endif
 
   spdlog::trace("preprocessed: {} -> {} points", raw_points->size(), preprocessed->size());
 

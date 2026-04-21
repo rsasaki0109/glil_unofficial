@@ -77,7 +77,7 @@ gtsam::GaussianFactor::shared_ptr IntegratedCoresetFactor::linearize(const gtsam
   // else: reuse cached H, b, c (deferred sampling)
 
   if (is_binary) {
-    return std::make_shared<gtsam::HessianFactor>(
+    return gtsam::GaussianFactor::shared_ptr(new gtsam::HessianFactor(
       keys()[0],
       keys()[1],
       cached_H_target,
@@ -85,14 +85,14 @@ gtsam::GaussianFactor::shared_ptr IntegratedCoresetFactor::linearize(const gtsam
       -cached_b_target,
       cached_H_source,
       -cached_b_source,
-      cached_error);
+      cached_error));
   } else {
-    return std::make_shared<gtsam::HessianFactor>(keys()[0], cached_H_source, -cached_b_source, cached_error);
+    return gtsam::GaussianFactor::shared_ptr(new gtsam::HessianFactor(keys()[0], cached_H_source, -cached_b_source, cached_error));
   }
 }
 
 gtsam::NonlinearFactor::shared_ptr IntegratedCoresetFactor::clone() const {
-  return std::make_shared<IntegratedCoresetFactor>(*this);
+  return gtsam::NonlinearFactor::shared_ptr(new IntegratedCoresetFactor(*this));
 }
 
 }  // namespace glil
