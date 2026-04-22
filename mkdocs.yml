@@ -1,8 +1,8 @@
 site_name: "GLIL"
 site_author: k.koide
-repo_url: https://github.com/koide3/glim
-site_url: https://glim.github.io/site
-site_description: "GLIM: Versatile and Extensible Open-Source 3D Range-based Mapping Framework"
+repo_url: https://github.com/rsasaki0109/glil_unofficial
+site_url: https://rsasaki0109.github.io/glil_unofficial/
+site_description: "GLIL CPU reproduction fork with LiDAR odometry configs and smoke checks"
 
 theme:
     name: material
@@ -34,7 +34,7 @@ extra:
         - icon: material/home
           link: https://staff.aist.go.jp/k.koide/
         - icon: fontawesome/brands/github
-          link: https://github.com/koide3/glim
+          link: https://github.com/rsasaki0109/glil_unofficial
         - icon: fontawesome/brands/docker
           link: https://hub.docker.com/repository/docker/koide3/glim_ros
         - icon: fontawesome/brands/twitter
