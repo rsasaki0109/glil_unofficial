@@ -6,6 +6,7 @@ site_description: "GLIL CPU reproduction fork with LiDAR odometry configs and sm
 
 theme:
     name: material
+    custom_dir: docs/overrides
     palette:
         primary: indigo
     logo: assets/logo2_w.png
