@@ -10,8 +10,8 @@ RUN apt-get update \
 RUN update-alternatives --install /usr/bin/ld ld /usr/bin/ld.lld 50
 
 # with CUDA
-COPY . /root/glim
-WORKDIR /root/glim/build
+COPY . /root/glil
+WORKDIR /root/glil/build
 RUN cmake .. \
   -DBUILD_WITH_CUDA=ON \
   -DBUILD_WITH_VIEWER=ON \

@@ -1,27 +1,88 @@
-![GLIM](docs/assets/logo2.png "GLIM Logo")
+![GLIL](docs/assets/logo2.png "GLIL Logo")
+
+# GLIL CPU Reproduction Fork
+
+Reproducible CPU-focused GLIL configs for LiDAR odometry experiments. This fork
+packages the 2026-04 MegaParticles reproduction work, the deterministic
+`outdoor_hard_01a` recipe, and an official Ouster sample smoke check.
+
+[![GitHub stars](https://img.shields.io/github/stars/rsasaki0109/glil_unofficial?style=social)](https://github.com/rsasaki0109/glil_unofficial/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![ROS 2](https://img.shields.io/badge/ROS-2-22314E.svg)](https://docs.ros.org/)
+
+Why this fork is useful:
+
+- Manifest-verified MegaParticles sample results: 3/3 Track B+C PASS.
+- Deterministic hard config: `outdoor_hard_01a` 5/5 byte-identical at
+  RMSE `0.906313`.
+- Ouster sample guardrails: corrected `acc_scale=1.0`, clean smoke
+  completion, no fallback/bitset abort.
+- Drop-in config directories for reproducing the validated local runs.
+
+If these reproduction configs save you time, starring the repo helps other
+robotics and LiDAR-SLAM users find it.
 
 ## Introduction
 
-**GLIM** is a versatile and extensible range-based 3D mapping framework.
+**GLIL** is a versatile and extensible range-based 3D mapping framework.
 
-- ***Accuracy:*** GLIM is based on direct multi-scan registration error minimization on factor graphs that enables to accurately retain the consistency of mappint results. GPU acceleration is supported to maximize the mapping speed and quality.
-- ***Easy-to-use:*** GLIM offers an interactive map correction interface that enables the user to manually correct mapping failures and easily refine mapping results.
-- ***Versatility:*** As we eliminated sensor-specific processes, GLIM can be applied to any kind of range sensors including:
+- ***Accuracy:*** GLIL is based on direct multi-scan registration error minimization on factor graphs that enables to accurately retain the consistency of mapping results. GPU acceleration is supported to maximize the mapping speed and quality.
+- ***Easy-to-use:*** GLIL offers an interactive map correction interface that enables the user to manually correct mapping failures and easily refine mapping results.
+- ***Versatility:*** As we eliminated sensor-specific processes, GLIL can be applied to any kind of range sensors including:
     - Spinning-type LiDAR (e.g., Velodyne HDL32e)
     - Non-repetitive scan LiDAR (e.g., Livox Avia)
     - Solid-state LiDAR (e.g., Intel Realsense L515)
     - RGB-D camera (e.g., Microsoft Azure Kinect)
-- ***Extensibility:*** GLIM provides the global callback slot mechanism that allows to access the internal states of the mapping process and insert additional constraints to the factor graph. We also release [glim_ext](https://github.com/koide3/glim_ext) that offers example implementations of several extension functions (e.g., explicit loop detection, LiDAR-Visual-Inertial odometry estimation).
+- ***Extensibility:*** GLIL provides the global callback slot mechanism that allows to access the internal states of the mapping process and insert additional constraints to the factor graph. We also release [glim_ext](https://github.com/koide3/glim_ext) that offers example implementations of several extension functions (e.g., explicit loop detection, LiDAR-Visual-Inertial odometry estimation).
 
 **Documentation: [https://koide3.github.io/glim/](https://koide3.github.io/glim/)**  
 **Docker hub: [koide3/glim_ros1](https://hub.docker.com/repository/docker/koide3/glim_ros1/tags), [koide3/glim_ros2](https://hub.docker.com/repository/docker/koide3/glim_ros2/tags)**  
-**Related packges:** [gtsam_points](https://github.com/koide3/gtsam_points), [glim](https://github.com/koide3/glim), [glim_ros1](https://github.com/koide3/glim_ros1), [glim_ros2](https://github.com/koide3/glim_ros2), [glim_ext](https://github.com/koide3/glim_ext)
+**Related packages:** [gtsam_points](https://github.com/koide3/gtsam_points), [glim](https://github.com/koide3/glim), [glim_ros1](https://github.com/koide3/glim_ros1), [glim_ros2](https://github.com/koide3/glim_ros2), [glim_ext](https://github.com/koide3/glim_ext)
 
 Tested on Ubuntu 22.04 /24.04 with CUDA 12.2, and NVIDIA Jetson Orin.
 
+## Fork Reproduction Status (2026-04-22)
+
+This fork carries the 2026-04 GLIL CPU reproduction configs. The local
+reproduction workspace verifies the available evidence bundle with a
+manifest-driven runner and records the headline results below.
+
+The fork depends on `rsasaki0109/gtsam_points#1` for the opt-in fixed-lag
+smoother fallback cadence and the `FastOccupancyGrid` non-finite/out-of-range
+coordinate guard.
+
+### Verified Local Results
+
+| dataset | kind | status | RMSE | upstream GLIM | playback mean | Track B | Track C | traj sha256 |
+|---|---|---|---:|---:|---:|---|---|---|
+| `indoor_easy_01` | APE | PASS | `1.019250` | `3.383012` | `1.000x` | PASS | PASS | `93ff42b99c304dd7...` |
+| `outdoor_hard_01a` | APE | PASS | `0.906313` | `4.321651` | `1.000x` | PASS | PASS | `9968e55d9836f428...` |
+| `outdoor_kidnap_a` | APE | PASS | `20.349845` | `21.701012` | `1.000x` | PASS | PASS | `de973cbf972bc4ca...` |
+| `os1_128_01_downsampled` | smoke | WARN | NA | NA | `0.201x` | NA | NA | `c384c08fc8b187eb...` |
+
+Track B is upstream GLIM RMSE + 20%. Track C is playback mean `>= 0.95x`.
+Both tracks apply only to entries with ground-truth APE. The overall manifest
+status is `WARN` because the Ouster smoke run is below the playback warning
+threshold, not because of a stability or accuracy failure.
+
+### Recommended Configs
+
+| dataset | config | note |
+|---|---|---|
+| `indoor_easy_01` | `config_fair_glil_true_sample_t128_indoor_d4k_k1_rw_csp15_ct64_lag4` | RMSE `1.019250`, Track B/C PASS |
+| `outdoor_hard_01a` | `config_fair_glil_true_sample_t128_hard_csp15_ct64_lag4_ffb100_skip16` | RMSE `0.906313`, 5/5 byte-identical hard recipe, Track B/C PASS |
+| `outdoor_kidnap_a` | `config_fair_glil_true_sample_t128_k1` | RMSE `20.349845`, Track B/C PASS |
+| `os1_128_01_downsampled` | `config_official_os1_128_01_downsampled_acc1` | official Ouster smoke; `1123` frames, `1122` pose rows, fallback `0`, bitset abort `0` |
+
+The Ouster bag publishes IMU accelerations in m/s^2, so `glil_ros.acc_scale`
+must be `1.0`; using `9.80665` is invalid for this sample and can drive
+occupancy coordinates out of range. This sample has no bundled local GT APE
+reference, so it is a completion/stability regression check rather than a paper
+accuracy-table reproduction.
+
 If you find this package useful for your project, please consider leaving a comment [here](https://github.com/koide3/glim/issues/19). It would help the author receive recognition in his organization and keep working on this project.
 
-[![Build](https://github.com/koide3/glim/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/glim/actions/workflows/build.yml)
+[![Build](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/build.yml/badge.svg)](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/build.yml)
 [![ROS1](https://github.com/koide3/glim_ros1/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/glim_ros1/actions/workflows/build.yml)
 [![ROS2](https://github.com/koide3/glim_ros2/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/glim_ros2/actions/workflows/build.yml)
 [![EXT](https://github.com/koide3/glim_ext/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/glim_ext/actions/workflows/build.yml)
@@ -51,7 +112,7 @@ Left: Mapping with various range sensors, Right: Outdoor driving test with Livox
 
 ## Estimation modules
 
-GLIM provides several estimation modules to cover use scenarios, from robust and accurate mapping with a GPU to lightweight real-time mapping with a low-specification PC like Raspberry Pi.
+GLIL provides several estimation modules to cover use scenarios, from robust and accurate mapping with a GPU to lightweight real-time mapping with a low-specification PC like Raspberry Pi.
 
 ![modules](docs/assets/module.png)
 

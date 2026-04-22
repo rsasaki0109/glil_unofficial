@@ -6,7 +6,7 @@
 
 **GLIM** is a versatile and extensible range-based 3D mapping framework.
 
-- ***Accuracy:*** GLIM is based on direct multi-scan registration error minimization on factor graphs that enables to accurately retain the consistency of mappint results. GPU acceleration is supported to maximize the mapping speed and quality.
+- ***Accuracy:*** GLIM is based on direct multi-scan registration error minimization on factor graphs that enables to accurately retain the consistency of mapping results. GPU acceleration is supported to maximize the mapping speed and quality.
 - ***Easy-to-use:*** GLIM offers an interactive map correction interface that enables the user to manually correct mapping failures and easily refine mapping results.
 - ***Versatility:*** As we eliminated sensor-specific processes, GLIM can be applied to any kind of range sensors including:
     - Spinning-type LiDAR (e.g., Velodyne HDL32e)
@@ -16,6 +16,23 @@
 - ***Extensibility:*** GLIM provides the global callback slot mechanism that allows to access the internal states of the mapping process and insert additional constraints to the factor graph. We also release [glim_ext](https://github.com/koide3/glim_ext) that offers example implementations of several extension functions (e.g., explicit loop detection, LiDAR-Visual-Inertial odometry estimation).
 
 Tested on Ubuntu 22.04 / 24.04 with CUDA 12.2, and NVIDIA Jetson Orin.
+
+## GLIL CPU Reproduction Fork
+
+This fork adds CPU-focused reproduction configs and validation notes for local
+LiDAR odometry experiments. The 2026-04 manifest-verified bundle records:
+
+| dataset | kind | status | RMSE | playback | note |
+|---|---|---|---:|---:|---|
+| `indoor_easy_01` | APE | PASS | `1.019250` | `1.000x` | Track B+C PASS |
+| `outdoor_hard_01a` | APE | PASS | `0.906313` | `1.000x` | 5/5 byte-identical hard recipe |
+| `outdoor_kidnap_a` | APE | PASS | `20.349845` | `1.000x` | Track B+C PASS |
+| `os1_128_01_downsampled` | smoke | WARN | NA | `0.201x` | clean Ouster smoke, no GT APE |
+
+Track B is upstream GLIM RMSE + 20%. Track C is playback mean `>= 0.95x`.
+The Ouster sample is a completion/stability smoke check because this workspace
+does not include a matching ground-truth APE file.
+
 
 [![Build test status](assets/build.svg)](https://github.com/koide3/glim/actions/workflows/build.yml)
 [![ROS1](assets/ros1.svg)](https://github.com/koide3/glim_ros1/actions/workflows/docker_push.yml)

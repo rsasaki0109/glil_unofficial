@@ -8,8 +8,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # with CUDA
-COPY . /root/glim
-WORKDIR /root/glim/build
+COPY . /root/glil
+WORKDIR /root/glil/build
 RUN cmake .. \
   -DBUILD_WITH_CUDA=ON \
   -DBUILD_WITH_VIEWER=ON \

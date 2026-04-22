@@ -1,0 +1,686 @@
+#include <glil/viewer/standard_viewer.hpp>
+
+#include <algorithm>
+#include <cmath>
+
+#include <spdlog/spdlog.h>
+
+#include <gtsam/inference/Symbol.h>
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam_points/optimizers/isam2_result_ext.hpp>
+#include <gtsam_points/optimizers/levenberg_marquardt_optimization_status.hpp>
+
+#include <glil/odometry/callbacks.hpp>
+#include <glil/odometry/estimation_frame.hpp>
+#include <glil/mapping/callbacks.hpp>
+#include <glil/util/config.hpp>
+#include <glil/util/logging.hpp>
+#include <glil/util/trajectory_manager.hpp>
+
+#include <glk/colormap.hpp>
+#include <glk/texture.hpp>
+#include <glk/texture_opencv.hpp>
+#include <glk/thin_lines.hpp>
+#include <glk/pointcloud_buffer.hpp>
+#include <glk/indexed_pointcloud_buffer.hpp>
+#include <glk/primitives/primitives.hpp>
+#include <guik/spdlog_sink.hpp>
+#include <guik/viewer/light_viewer.hpp>
+
+namespace glil {
+
+StandardViewer::StandardViewer() : logger(create_module_logger("viewer")) {
+  glil::Config config(glil::GlobalConfig::get_config_path("config_viewer"));
+
+  kill_switch = false;
+  request_to_terminate = false;
+
+  track = true;
+  show_current_coord = true;
+  show_current_points = true;
+  current_color_mode = 0;
+
+  show_odometry_scans = true;
+  show_odometry_keyframes = true;
+  show_submaps = true;
+  show_factors = true;
+  show_graph_optimization_deltas = true;
+
+  show_odometry_status = false;
+  show_graph_optimization_status = false;
+  last_id = last_num_points = 0;
+  last_point_stamps = std::make_pair(0.0, 0.0);
+  last_imu_vel.setZero();
+  last_imu_bias.setZero();
+  last_graph_update_num_values = 0;
+  last_graph_update_num_factors = 0;
+  last_graph_moved_submaps = 0;
+  last_graph_max_translation_delta = 0.0f;
+  last_graph_max_rotation_delta_deg = 0.0f;
+
+  z_range = config.param("standard_viewer", "default_z_range", Eigen::Vector2d(-2.0, 4.0)).cast<float>();
+  auto_z_range << 0.0f, 0.0f;
+  graph_optimization_delta_min_trans = config.param("standard_viewer", "graph_optimization_delta_min_trans", 0.05);
+
+  trajectory.reset(new TrajectoryManager);
+
+  enable_partial_rendering = config.param("standard_viewer", "enable_partial_rendering", false);
+  partial_rendering_budget = config.param("standard_viewer", "partial_rendering_budget", 1024);
+
+  set_callbacks();
+  thread = std::thread([this] { viewer_loop(); });
+}
+
+StandardViewer::~StandardViewer() {
+  kill_switch = true;
+  if (thread.joinable()) {
+    thread.join();
+  }
+}
+
+bool StandardViewer::ok() const {
+  return !request_to_terminate;
+}
+
+void StandardViewer::invoke(const std::function<void()>& task) {
+  if (kill_switch) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(invoke_queue_mutex);
+  invoke_queue.push_back(task);
+}
+
+Eigen::Isometry3f StandardViewer::resolve_pose(const EstimationFrame::ConstPtr& frame) {
+  switch (frame->frame_id) {
+    case FrameID::WORLD:
+      return Eigen::Isometry3f::Identity();
+
+    default:
+      return trajectory->odom2world(frame->T_world_sensor()).cast<float>();
+  }
+}
+
+float StandardViewer::rotation_delta_deg(const Eigen::Isometry3f& before, const Eigen::Isometry3f& after) {
+  constexpr float rad_to_deg = 180.0f / 3.14159265358979323846f;
+  const Eigen::Matrix3f delta = before.linear().transpose() * after.linear();
+  return Eigen::AngleAxisf(delta).angle() * rad_to_deg;
+}
+
+std::vector<unsigned int> StandardViewer::collect_global_factor_indices(const size_t num_submaps) const {
+  std::vector<unsigned int> factor_indices;
+  factor_indices.reserve(global_between_factors.size() * 2);
+
+  for (const auto& factor : global_between_factors) {
+    if (factor.first >= 0 && factor.second >= 0 && static_cast<size_t>(factor.first) < num_submaps && static_cast<size_t>(factor.second) < num_submaps) {
+      factor_indices.push_back(factor.first);
+      factor_indices.push_back(factor.second);
+    }
+  }
+
+  return factor_indices;
+}
+
+StandardViewer::GraphOptimizationUpdate StandardViewer::create_graph_optimization_update(
+  const std::vector<int>& submap_ids,
+  const std::vector<Eigen::Isometry3f>& submap_poses) {
+  GraphOptimizationUpdate update;
+  update.submap_positions.resize(submap_ids.size());
+
+  for (size_t i = 0; i < submap_ids.size(); ++i) {
+    const int submap_id = submap_ids[i];
+    const size_t submap_index = static_cast<size_t>(submap_id);
+    update.submap_positions[i] = submap_poses[i].translation();
+
+    if (previous_submap_poses.size() <= submap_index) {
+      previous_submap_poses.resize(submap_index + 1, Eigen::Isometry3f::Identity());
+      previous_submap_poses[submap_index] = submap_poses[i];
+    }
+
+    const Eigen::Isometry3f previous_pose = previous_submap_poses[submap_index];
+    const float translation_delta = (submap_poses[i].translation() - previous_pose.translation()).norm();
+    const float rotation_delta = rotation_delta_deg(previous_pose, submap_poses[i]);
+
+    update.max_translation_delta = std::max(update.max_translation_delta, translation_delta);
+    update.max_rotation_delta_deg = std::max(update.max_rotation_delta_deg, rotation_delta);
+    if (translation_delta >= graph_optimization_delta_min_trans) {
+      update.delta_lines.push_back(previous_pose.translation());
+      update.delta_lines.push_back(submap_poses[i].translation());
+      update.moved_submaps++;
+    }
+
+    previous_submap_poses[submap_index] = submap_poses[i];
+
+    auto_z_range[0] = std::min<float>(auto_z_range[0], submap_poses[i].translation().z());
+    auto_z_range[1] = std::max<float>(auto_z_range[1], submap_poses[i].translation().z());
+  }
+
+  update.factor_indices = collect_global_factor_indices(submap_ids.size());
+  return update;
+}
+
+void StandardViewer::update_submap_drawables(const std::vector<int>& submap_ids, const std::vector<Eigen::Isometry3f>& submap_poses) {
+  auto viewer = guik::LightViewer::instance();
+
+  for (size_t i = 0; i < submap_ids.size(); ++i) {
+    const std::string submap_name = "submap_" + std::to_string(submap_ids[i]);
+    auto drawable = viewer->find_drawable(submap_name);
+    if (drawable.first) {
+      drawable.first->add("model_matrix", submap_poses[i].matrix());
+    }
+
+    viewer->update_drawable(
+      "submap_coord_" + std::to_string(submap_ids[i]),
+      glk::Primitives::coordinate_system(),
+      guik::VertexColor(submap_poses[i]));
+  }
+}
+
+void StandardViewer::update_graph_optimization_drawables(const GraphOptimizationUpdate& update) {
+  auto viewer = guik::LightViewer::instance();
+
+  viewer->update_drawable("factors", std::make_shared<glk::ThinLines>(update.submap_positions, update.factor_indices), guik::FlatGreen());
+
+  auto delta_drawable = std::make_shared<glk::ThinLines>(update.delta_lines);
+  delta_drawable->set_line_width(2.0f);
+  viewer->update_drawable("graph_optimization_deltas", delta_drawable, guik::FlatOrange());
+  viewer->shader_setting().add<Eigen::Vector2f>("z_range", auto_z_range + z_range);
+}
+
+void StandardViewer::update_graph_optimization_status(const GraphOptimizationUpdate& update) {
+  last_graph_moved_submaps = update.moved_submaps;
+  last_graph_max_translation_delta = update.max_translation_delta;
+  last_graph_max_rotation_delta_deg = update.max_rotation_delta_deg;
+}
+
+void StandardViewer::set_callbacks() {
+  /*** Odometry callbacks ***/
+
+  // IMU state initialization update callback
+  IMUStateInitializationCallbacks::on_updated.add([this](const PreprocessedFrame::ConstPtr& frame, const Eigen::Isometry3d& T_odom_lidar_) {
+    std::shared_ptr<Eigen::Isometry3d> T_odom_lidar(new Eigen::Isometry3d(T_odom_lidar_));
+    invoke([this, frame, T_odom_lidar] {
+      auto viewer = guik::LightViewer::instance();
+      auto cloud_buffer = std::make_shared<glk::PointCloudBuffer>(frame->points);
+      viewer->update_drawable("initialization_frame_" + guik::anon(), cloud_buffer, guik::FlatBlue(*T_odom_lidar));
+      viewer->update_drawable("initialization_frame_current", cloud_buffer, guik::FlatOrange(*T_odom_lidar).set_point_scale(2.0f));
+    });
+  });
+
+  // IMU state initialization termination callback
+  IMUStateInitializationCallbacks::on_finished.add([this](const EstimationFrame::ConstPtr& frame) {
+    invoke([this] {
+      auto viewer = guik::LightViewer::instance();
+      viewer->remove_drawable(std::regex("initialization.*"));
+    });
+  });
+
+  // New image callback
+  OdometryEstimationCallbacks::on_insert_image.add([this](const double stamp, const cv::Mat& image) {
+    invoke([this, image] {
+      auto viewer = guik::LightViewer::instance();
+      const auto texture = glk::create_texture(image);
+      viewer->update_image("image", texture);
+    });
+  });
+
+  // New frame callback
+  OdometryEstimationCallbacks::on_new_frame.add([this](const EstimationFrame::ConstPtr& new_frame) {
+    invoke([this, new_frame] {
+      auto viewer = guik::LightViewer::instance();
+      auto cloud_buffer = std::make_shared<glk::PointCloudBuffer>(new_frame->frame->points, new_frame->frame->size());
+
+      last_id = new_frame->id;
+      last_num_points = new_frame->frame->size();
+      if (new_frame->raw_frame && new_frame->raw_frame->size()) {
+        last_point_stamps.first = new_frame->raw_frame->times.front();
+        last_point_stamps.second = new_frame->raw_frame->times.back();
+      }
+      last_imu_vel = new_frame->v_world_imu;
+      last_imu_bias = new_frame->imu_bias;
+
+      trajectory->add_odom(new_frame->stamp, new_frame->T_world_sensor());
+      const Eigen::Isometry3f pose = resolve_pose(new_frame);
+
+      if (track) {
+        viewer->lookat(pose.translation());
+      }
+
+      guik::ShaderSetting shader_setting = guik::FlatColor(1.0f, 0.5f, 0.0f, 1.0f, pose);
+      guik::ShaderSetting shader_setting_rainbow = guik::Rainbow(pose);
+
+      switch (current_color_mode) {
+        case 0:  // FLAT
+          break;
+        case 1:  // INTENSITY
+          if (new_frame->raw_frame && !new_frame->raw_frame->intensities.empty()) {
+            const double max_intensity = *std::max_element(new_frame->raw_frame->intensities.begin(), new_frame->raw_frame->intensities.end());
+            cloud_buffer->add_intensity(glk::COLORMAP::TURBO, new_frame->raw_frame->intensities, 1.0 / max_intensity);
+          } else if (new_frame->frame->intensities) {
+            std::vector<float> intensities(new_frame->frame->intensities, new_frame->frame->intensities + new_frame->frame->size());
+            const float max_intensity = *std::max_element(intensities.begin(), intensities.end());
+            cloud_buffer->add_intensity(glk::COLORMAP::TURBO, intensities, 1.0f / max_intensity);
+          }
+          shader_setting.add("color_mode", guik::ColorMode::VERTEX_COLOR);
+          shader_setting_rainbow.add("color_mode", guik::ColorMode::VERTEX_COLOR);
+          break;
+        case 2:  // NORMAL
+          if (new_frame->frame->normals) {
+            std::vector<Eigen::Vector4d> normals(new_frame->frame->normals, new_frame->frame->normals + new_frame->frame->size());
+            for (auto& normal : normals) {
+              normal = normal.array().abs();
+              normal[3] = 1.0;
+            }
+            cloud_buffer->add_color(normals);
+          }
+
+          shader_setting.add("color_mode", guik::ColorMode::VERTEX_COLOR);
+          shader_setting_rainbow.add("color_mode", guik::ColorMode::VERTEX_COLOR);
+          break;
+      }
+
+      viewer->update_drawable("current_frame", cloud_buffer, shader_setting.add("point_scale", 2.0f));
+      viewer->update_drawable("current_coord", glk::Primitives::coordinate_system(), guik::VertexColor(pose * Eigen::UniformScaling<float>(1.5f)));
+      viewer->update_drawable("frame_" + std::to_string(new_frame->id), cloud_buffer, shader_setting_rainbow);
+    });
+  });
+
+  // Update frames callback
+  OdometryEstimationCallbacks::on_update_frames.add([this](const std::vector<EstimationFrame::ConstPtr>& frames) {
+    invoke([this, frames] {
+      auto viewer = guik::LightViewer::instance();
+      for (const auto& frame : frames) {
+        auto drawable = viewer->find_drawable("frame_" + std::to_string(frame->id));
+        if (drawable.first) {
+          const Eigen::Isometry3f pose = resolve_pose(frame);
+          drawable.first->add<Eigen::Matrix4f>("model_matrix", pose.matrix());
+        }
+      }
+    });
+  });
+
+  // Update keyframes callback
+  OdometryEstimationCallbacks::on_update_keyframes.add([this](const std::vector<EstimationFrame::ConstPtr>& keyframes) {
+    invoke([this, keyframes] {
+      auto viewer = guik::LightViewer::instance();
+
+      for (const auto& keyframe : keyframes) {
+        const Eigen::Isometry3f pose = resolve_pose(keyframe);
+
+        const std::string name = "odometry_keyframe_" + std::to_string(keyframe->id);
+        auto drawable = viewer->find_drawable(name);
+        if (drawable.first == nullptr) {
+          auto cloud_buffer = std::make_shared<glk::PointCloudBuffer>(keyframe->frame->points, keyframe->frame->size());
+          viewer->update_drawable(name, cloud_buffer, guik::Rainbow(pose));
+        } else {
+          drawable.first->add("model_matrix", pose.matrix());
+        }
+
+        viewer->update_drawable("odometry_keyframe_coord_" + std::to_string(keyframe->id), glk::Primitives::coordinate_system(), guik::VertexColor(pose));
+      }
+    });
+  });
+
+  // Marginalized frames callback
+  OdometryEstimationCallbacks::on_marginalized_frames.add([this](const std::vector<EstimationFrame::ConstPtr>& frames) {
+    std::vector<int> marginalized_ids(frames.size());
+    std::transform(frames.begin(), frames.end(), marginalized_ids.begin(), [](const EstimationFrame::ConstPtr& frame) { return frame->id; });
+
+    invoke([this, marginalized_ids] {
+      auto viewer = guik::LightViewer::instance();
+      for (const int id : marginalized_ids) {
+        viewer->remove_drawable("frame_" + std::to_string(id));
+      }
+    });
+  });
+
+  // Marginalized keyframes callback
+  OdometryEstimationCallbacks::on_marginalized_keyframes.add([this](const std::vector<EstimationFrame::ConstPtr>& keyframes) {
+    invoke([this, keyframes] {
+      auto viewer = guik::LightViewer::instance();
+      for (const auto& keyframe : keyframes) {
+        viewer->remove_drawable("odometry_keyframe_" + std::to_string(keyframe->id));
+        viewer->remove_drawable("odometry_keyframe_coord_" + std::to_string(keyframe->id));
+      }
+    });
+  });
+
+  /*** Submapping callbacks ***/
+  // New keyframe callback
+  SubMappingCallbacks::on_new_keyframe.add([this](int id, const EstimationFrame::ConstPtr& keyframe) {
+    gtsam_points::PointCloud::ConstPtr frame = keyframe->frame;
+
+    invoke([this, id, keyframe, frame] {
+      auto viewer = guik::LightViewer::instance();
+      auto sub_viewer = viewer->sub_viewer("submap");
+
+      const Eigen::Vector4f color = glk::colormap_categoricalf(glk::COLORMAP::TURBO, id, 16);
+      const auto cloud_buffer = std::make_shared<glk::PointCloudBuffer>(frame->points, frame->size());
+
+      guik::FlatColor shader_setting(color);
+      if (id == 0) {
+        sub_viewer->clear_text();
+        sub_viewer->clear_drawables();
+        submap_keyframes.clear();
+
+        const Eigen::Isometry3f T_world_key0 = keyframe->T_world_imu.cast<float>();
+        Eigen::Isometry3f T_center_key0 = T_world_key0;
+        T_center_key0.translation().setZero();
+
+        shader_setting.add("T_world_key0", T_world_key0.matrix());
+        shader_setting.add("T_center_key0", T_center_key0.matrix());
+        shader_setting.add("model_matrix", T_center_key0.matrix());
+      } else {
+        auto drawable = sub_viewer->find_drawable("frame_0");
+        if (drawable.first) {
+          const Eigen::Isometry3f T_world_key0(drawable.first->cast<Eigen::Matrix4f>("T_world_key0"));
+          const Eigen::Isometry3f T_center_key0(drawable.first->cast<Eigen::Matrix4f>("T_center_key0"));
+          const Eigen::Isometry3f T_world_key1 = keyframe->T_world_imu.cast<float>();
+
+          const Eigen::Isometry3f T_center_key1 = T_center_key0 * T_world_key0.inverse() * T_world_key1;
+          shader_setting.add("model_matrix", T_center_key1.matrix());
+        }
+      }
+
+      if (submap_keyframes.size() <= id) {
+        submap_keyframes.resize(id + 1, Eigen::Isometry3f::Identity());
+        submap_keyframes[id] = Eigen::Isometry3f(shader_setting.cast<Eigen::Matrix4f>("model_matrix"));
+      }
+
+      sub_viewer->update_drawable("frame_" + std::to_string(id), cloud_buffer, shader_setting);
+      sub_viewer->update_drawable(
+        "coord_" + std::to_string(id),
+        glk::Primitives::coordinate_system(),
+        guik::VertexColor(shader_setting.cast<Eigen::Matrix4f>("model_matrix") * Eigen::UniformScaling<float>(3.0f)));
+    });
+  });
+
+  // Submap optimization callback
+  SubMappingCallbacks::on_optimize_submap.add([this](gtsam::NonlinearFactorGraph& graph, gtsam::Values& values) {
+    std::vector<std::pair<int, int>> factors;
+    for (const auto& factor : graph) {
+      if (factor->keys().size() != 2) {
+        continue;
+      }
+
+      gtsam::Symbol symbol0(factor->keys()[0]);
+      gtsam::Symbol symbol1(factor->keys()[1]);
+
+      if (symbol0.chr() != 'x' || symbol1.chr() != 'x') {
+        continue;
+      }
+
+      factors.push_back(std::make_pair(symbol0.index(), symbol1.index()));
+    }
+
+    invoke([this, factors] {
+      auto viewer = guik::LightViewer::instance();
+      auto sub_viewer = viewer->sub_viewer("submap");
+
+      std::vector<Eigen::Vector3f> lines;
+      for (const auto& factor : factors) {
+        if (submap_keyframes.size() <= factor.first || submap_keyframes.size() <= factor.second) {
+          continue;
+        }
+
+        lines.push_back(submap_keyframes[factor.first].translation());
+        lines.push_back(submap_keyframes[factor.second].translation());
+      }
+
+      sub_viewer->update_drawable("factors", std::make_shared<glk::ThinLines>(lines), guik::FlatGreen());
+    });
+  });
+
+  // Submap optimization status callback
+  SubMappingCallbacks::on_optimization_status.add([this](const gtsam_points::LevenbergMarquardtOptimizationStatus& status, const gtsam::Values& values) {
+    logger->debug("--- submap optimization ---");
+    logger->debug(status.to_short_string());
+  });
+
+  /*** Global mapping callbacks ***/
+  // Insert submap callback
+  GlobalMappingCallbacks::on_insert_submap.add([this](const SubMap::ConstPtr& submap) {
+    // submap->T_world_origin can be updated in the global mapping
+    // To safely pass it to the UI thread (pass-by-value of Eigen classes can crash) wrap it in a shared_ptr
+    const std::shared_ptr<Eigen::Isometry3d> T_world_origin(new Eigen::Isometry3d(submap->T_world_origin));
+
+    invoke([this, submap, T_world_origin] {
+      const double stamp_endpoint_R = submap->odom_frames.back()->stamp;
+      const Eigen::Isometry3d T_world_endpoint_R = (*T_world_origin) * submap->T_origin_endpoint_R;
+      trajectory->update_anchor(stamp_endpoint_R, T_world_endpoint_R);
+
+      auto viewer = guik::LightViewer::instance();
+      auto cloud_buffer = std::make_shared<glk::PointCloudBuffer>(submap->frame->points, submap->frame->size());
+      auto shader_setting = guik::Rainbow(T_world_origin->matrix().cast<float>());
+      shader_setting.add("point_scale", 0.001f);
+
+      if (enable_partial_rendering) {
+        cloud_buffer->enable_partial_rendering(partial_rendering_budget);
+        shader_setting.add("dynamic_object", 0).make_transparent();
+      }
+
+      viewer->update_drawable("submap_" + std::to_string(submap->id), cloud_buffer, shader_setting);
+    });
+  });
+
+  // Update submaps callback
+  GlobalMappingCallbacks::on_update_submaps.add([this](const std::vector<SubMap::Ptr>& submaps) {
+    std::vector<int> submap_ids(submaps.size());
+    std::vector<Eigen::Isometry3f> submap_poses(submaps.size());
+    for (size_t i = 0; i < submaps.size(); ++i) {
+      submap_ids[i] = submaps[i]->id;
+      submap_poses[i] = submaps[i]->T_world_origin.cast<float>();
+    }
+
+    invoke([this, submap_ids, submap_poses] {
+      const GraphOptimizationUpdate update = create_graph_optimization_update(submap_ids, submap_poses);
+      update_submap_drawables(submap_ids, submap_poses);
+      update_graph_optimization_drawables(update);
+      update_graph_optimization_status(update);
+    });
+  });
+
+  // Smoother update callback
+  GlobalMappingCallbacks::on_smoother_update.add([this](gtsam_points::ISAM2Ext& isam2, gtsam::NonlinearFactorGraph& new_factors, gtsam::Values& new_values) {
+    std::vector<std::pair<int, int>> between_factors;
+    for (const auto& factor : new_factors) {
+      if (factor->keys().size() != 2) {
+        continue;
+      }
+
+      const gtsam::Symbol symbol0(factor->keys()[0]);
+      const gtsam::Symbol symbol1(factor->keys()[1]);
+      if (symbol0.chr() != 'x' || symbol1.chr() != 'x') {
+        continue;
+      }
+
+      between_factors.push_back(std::make_pair(symbol0.index(), symbol1.index()));
+    }
+
+    invoke([this, between_factors] { global_between_factors.insert(global_between_factors.end(), between_factors.begin(), between_factors.end()); });
+  });
+
+  // Smoother update result callback
+  GlobalMappingCallbacks::on_smoother_update_result.add([this](gtsam_points::ISAM2Ext& isam2, const gtsam_points::ISAM2ResultExt& result) {
+    logger->debug("--- iSAM2 update ({} values / {} factors) ---", result.num_values, result.num_factors);
+    logger->debug(result.to_string());
+    invoke([this, num_values = result.num_values, num_factors = result.num_factors] {
+      last_graph_update_num_values = num_values;
+      last_graph_update_num_factors = num_factors;
+    });
+  });
+}
+
+void StandardViewer::viewer_loop() {
+  glil::Config config(glil::GlobalConfig::get_config_path("config_viewer"));
+
+  auto viewer = guik::LightViewer::instance(Eigen::Vector2i(config.param("standard_viewer", "viewer_width", 2560), config.param("standard_viewer", "viewer_height", 1440)));
+  viewer->enable_vsync();
+  viewer->shader_setting().add("z_range", z_range);
+
+  if (enable_partial_rendering) {
+    viewer->enable_partial_rendering(1e-1);
+    viewer->shader_setting().add("dynamic_object", 1);
+  }
+
+  auto submap_viewer = viewer->sub_viewer("submap");
+  submap_viewer->set_pos(Eigen::Vector2i(100, 800));
+  submap_viewer->set_draw_xy_grid(false);
+  submap_viewer->use_topdown_camera_control(80.0);
+
+  viewer->register_drawable_filter("selection", [this](const std::string& name) { return drawable_filter(name); });
+  viewer->register_ui_callback("selection", [this] { drawable_selection(); });
+  viewer->register_ui_callback("logging", guik::create_logger_ui(glil::get_ringbuffer_sink(), 0.5));
+
+  while (!kill_switch) {
+    if (!viewer->spin_once()) {
+      request_to_terminate = true;
+    }
+
+    std::lock_guard<std::mutex> lock(invoke_queue_mutex);
+    for (const auto& task : invoke_queue) {
+      task();
+    }
+    invoke_queue.clear();
+  }
+
+  guik::LightViewer::destroy();
+}
+
+bool StandardViewer::drawable_filter(const std::string& name) {
+  const auto starts_with = [](const std::string& name, const std::string& pattern) {
+    if (name.size() < pattern.size()) {
+      return false;
+    }
+
+    return std::equal(pattern.begin(), pattern.end(), name.begin());
+  };
+
+  if (!show_current_coord && name == "current_coord") {
+    return false;
+  }
+
+  if (!show_current_points && name == "current_frame") {
+    return false;
+  }
+
+  if (!show_odometry_scans && starts_with(name, "frame_")) {
+    return false;
+  }
+
+  if (!show_odometry_keyframes && starts_with(name, "odometry_keyframe_")) {
+    return false;
+  }
+
+  if (!show_submaps && starts_with(name, "submap_")) {
+    return false;
+  }
+
+  if (!show_factors && starts_with(name, "factors")) {
+    return false;
+  }
+
+  if (!show_graph_optimization_deltas && name == "graph_optimization_deltas") {
+    return false;
+  }
+
+  return true;
+}
+
+void StandardViewer::drawable_selection() {
+  auto viewer = guik::LightViewer::instance();
+
+  ImGui::SetWindowPos("images", {1800, 60}, ImGuiCond_FirstUseEver);
+  ImGui::SetWindowPos("logging", {1800, 950}, ImGuiCond_FirstUseEver);
+
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5));
+  ImGui::Begin("selection", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+  ImGui::PopStyleColor();
+
+  if (ImGui::Checkbox("track", &track)) {
+    if (track) {
+      guik::LightViewer::instance()->reset_center();
+    }
+  }
+  ImGui::SameLine();
+  bool show_current = show_current_coord || show_current_points;
+  if (ImGui::Checkbox("current", &show_current)) {
+    show_current_coord = show_current_points = show_current;
+  }
+  ImGui::SameLine();
+  ImGui::Checkbox("coord", &show_current_coord);
+  ImGui::SameLine();
+  ImGui::Checkbox("points", &show_current_points);
+
+  std::vector<const char*> current_color_modes = {"FLAT", "INTENSITY", "NORMAL"};
+  ImGui::SetNextItemWidth(92);
+  ImGui::Combo("color_mode", &current_color_mode, current_color_modes.data(), current_color_modes.size());
+
+  ImGui::SameLine();
+  if (ImGui::Button("Log")) {
+    viewer->register_ui_callback("logging", guik::create_logger_ui(glil::get_ringbuffer_sink(), 0.5));
+  }
+
+  ImGui::Separator();
+  bool show_odometry = show_odometry_scans || show_odometry_keyframes;
+  if (ImGui::Checkbox("odometry", &show_odometry)) {
+    show_odometry_scans = show_odometry_keyframes = show_odometry;
+  }
+
+  ImGui::SameLine();
+  if (ImGui::Button("Status")) {
+    show_odometry_status = true;
+  }
+
+  ImGui::Checkbox("scans", &show_odometry_scans);
+  ImGui::SameLine();
+  ImGui::Checkbox("keyframes", &show_odometry_keyframes);
+
+  ImGui::Separator();
+  bool show_mapping = show_submaps || show_factors || show_graph_optimization_deltas;
+  if (ImGui::Checkbox("mapping", &show_mapping)) {
+    show_submaps = show_factors = show_graph_optimization_deltas = show_mapping;
+  }
+
+  ImGui::Checkbox("submaps", &show_submaps);
+  ImGui::SameLine();
+  ImGui::Checkbox("factors", &show_factors);
+  ImGui::SameLine();
+  ImGui::Checkbox("opt_deltas", &show_graph_optimization_deltas);
+  ImGui::SameLine();
+  if (ImGui::Button("Graph")) {
+    show_graph_optimization_status = true;
+  }
+
+  ImGui::Separator();
+  if (ImGui::DragFloatRange2("z_range", &z_range[0], &z_range[1], 0.1f, -100.0f, 100.0f)) {
+    viewer->shader_setting().add<Eigen::Vector2f>("z_range", auto_z_range + z_range);
+  }
+
+  ImGui::End();
+
+  if (show_odometry_status) {
+    ImGui::Begin("odometry status", &show_odometry_status, ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Text("frame ID:%d", last_id);
+    ImGui::Text("points:%d", last_num_points);
+    ImGui::Text("stamp:%.3f ~ %.3f", last_point_stamps.first, last_point_stamps.second);
+    ImGui::Text("vel:%.3f %.3f %.3f", last_imu_vel[0], last_imu_vel[1], last_imu_vel[2]);
+    ImGui::Text("bias:%.3f %.3f %.3f %.3f %.3f %.3f", last_imu_bias[0], last_imu_bias[1], last_imu_bias[2], last_imu_bias[3], last_imu_bias[4], last_imu_bias[5]);
+    ImGui::End();
+  }
+
+  if (show_graph_optimization_status) {
+    ImGui::Begin("graph optimization", &show_graph_optimization_status, ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Text("values:%d", last_graph_update_num_values);
+    ImGui::Text("factors:%d", last_graph_update_num_factors);
+    ImGui::Text("moved_submaps:%d", last_graph_moved_submaps);
+    ImGui::Text("max_delta_trans:%.3f m", last_graph_max_translation_delta);
+    ImGui::Text("max_delta_rot:%.3f deg", last_graph_max_rotation_delta_deg);
+    ImGui::Text("delta_min_trans:%.3f m", graph_optimization_delta_min_trans);
+    ImGui::End();
+  }
+}
+}  // namespace glil
+
+extern "C" glil::ExtensionModule* create_extension_module() {
+  return new glil::StandardViewer();
+}

@@ -1,0 +1,35 @@
+#pragma once
+
+#include <glil/mapping/global_mapping.hpp>
+#include <glil/mapping/async_global_mapping.hpp>
+#include <glil/viewer/interactive_viewer.hpp>
+
+namespace guik {
+class ProgressModal;
+class ProgressInterface;
+}  // namespace guik
+
+namespace glil {
+
+class OfflineViewer : public InteractiveViewer {
+public:
+  OfflineViewer(const std::string& init_map_path = "");
+  virtual ~OfflineViewer() override;
+
+private:
+  virtual void setup_ui() override;
+
+  void main_menu();
+
+  std::shared_ptr<GlobalMapping> load_map(guik::ProgressInterface& progress, const std::string& path);
+  bool save_map(guik::ProgressInterface& progress, const std::string& path);
+  bool export_map(guik::ProgressInterface& progress, const std::string& path);
+
+private:
+  std::string init_map_path;
+  std::unique_ptr<guik::ProgressModal> progress_modal;
+
+  std::unique_ptr<AsyncGlobalMapping> async_global_mapping;
+};
+
+}  // namespace glil
