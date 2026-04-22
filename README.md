@@ -2,15 +2,26 @@
 
 # GLIL CPU Reproduction Fork
 
-Reproducible CPU-focused GLIL configs for LiDAR odometry experiments. This fork
-packages the 2026-04 MegaParticles reproduction work, the deterministic
-`outdoor_hard_01a` recipe, and an official Ouster sample smoke check.
+Reproduction-first GLIL fork for LiDAR odometry experiments: validated
+MegaParticles configs, official Ouster smoke guardrails, and CI-checked
+CPU/CUDA Docker builds.
 
 [![GitHub stars](https://img.shields.io/github/stars/rsasaki0109/glil_unofficial?style=social)](https://github.com/rsasaki0109/glil_unofficial/stargazers)
+[![Release](https://img.shields.io/github/v/release/rsasaki0109/glil_unofficial)](https://github.com/rsasaki0109/glil_unofficial/releases)
+[![Build](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/build.yml)
+[![Docs](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/gendoc.yml/badge.svg?branch=dev)](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/gendoc.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![ROS 2](https://img.shields.io/badge/ROS-2-22314E.svg)](https://docs.ros.org/)
 
-![Reproduction scorecard](docs/assets/reproduction-scorecard.svg)
+![Reproduction scorecard](docs/assets/social-preview.png)
+
+## 30-Second Summary
+
+| Signal | Status |
+|---|---|
+| MegaParticles APE checks | 3/3 Track B+C PASS |
+| Strongest deterministic recipe | `outdoor_hard_01a`, RMSE `0.906313`, 5/5 byte-identical |
+| Official Ouster smoke path | `1122` pose rows, fallback `0`, bitset abort `0` |
+| Docker confidence | CPU matrix and CUDA images pass on `dev` |
 
 ## Start Here
 
@@ -18,23 +29,40 @@ packages the 2026-04 MegaParticles reproduction work, the deterministic
 |---|---|
 | Check the headline evidence | [Reproduction scoreboard](docs/reproduction.md) |
 | Pick the validated config | [Recommended Configs](#recommended-configs) |
+| Build the CI-tested Docker image | [Run A Docker Build](#run-a-docker-build) |
 | Read the generated docs | <https://rsasaki0109.github.io/glil_unofficial/> |
 | Report your own run | [Reproduction report issue](https://github.com/rsasaki0109/glil_unofficial/issues/new?template=reproduction_report.md) |
 
-## Shareable Pitch
+## Run A Docker Build
 
-> GLIL CPU Reproduction Fork packages reproducible LiDAR odometry configs for
-> MegaParticles samples and the official Ouster smoke path: 3/3 Track B+C PASS,
-> `outdoor_hard_01a` at RMSE `0.906313`, and a 5/5 byte-identical hard recipe.
+CPU image, matching the CI base-image pattern:
 
-Why this fork is useful:
+```bash
+docker build \
+  -f docker/ubuntu/Dockerfile.gcc \
+  --build-arg BASE_IMAGE=koide3/gtsam_points:jammy_gtsam4.3a0 \
+  -t glil-unofficial:jammy-gcc \
+  .
+```
 
-- Manifest-verified MegaParticles sample results: 3/3 Track B+C PASS.
-- Deterministic hard config: `outdoor_hard_01a` 5/5 byte-identical at
-  RMSE `0.906313`.
-- Ouster sample guardrails: corrected `acc_scale=1.0`, clean smoke
-  completion, no fallback/bitset abort.
-- Drop-in config directories for reproducing the validated local runs.
+CUDA image:
+
+```bash
+docker build \
+  -f docker/ubuntu/Dockerfile.gcc.cuda \
+  --build-arg BASE_IMAGE=koide3/gtsam_points:jammy_cuda12.2_gtsam4.3a0 \
+  -t glil-unofficial:jammy-cuda-gcc \
+  .
+```
+
+## Why Star This Fork
+
+- It packages the 2026-04 MegaParticles reproduction evidence in a form that is
+  easy to inspect and rerun.
+- It keeps a small scoreboard for the validated configs instead of asking users
+  to infer results from raw logs.
+- It includes CPU and CUDA Docker build checks so dependency drift is visible.
+- It gives LiDAR-SLAM users a concrete place to file reproduction reports.
 
 If these reproduction configs save you time, starring the repo helps other
 robotics and LiDAR-SLAM users find it.
