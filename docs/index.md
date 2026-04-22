@@ -20,7 +20,10 @@ Tested on Ubuntu 22.04 / 24.04 with CUDA 12.2, and NVIDIA Jetson Orin.
 ## GLIL CPU Reproduction Fork
 
 This fork adds CPU-focused reproduction configs and validation notes for local
-LiDAR odometry experiments. The 2026-04 manifest-verified bundle records:
+LiDAR odometry experiments. The 2026-04 manifest-verified bundle records
+3/3 MegaParticles APE PASS plus a clean official Ouster sample smoke check.
+
+![Reproduction scorecard](assets/reproduction-scorecard.svg)
 
 | dataset | kind | status | RMSE | playback | note |
 |---|---|---|---:|---:|---|
@@ -31,12 +34,13 @@ LiDAR odometry experiments. The 2026-04 manifest-verified bundle records:
 
 Track B is upstream GLIM RMSE + 20%. Track C is playback mean `>= 0.95x`.
 The Ouster sample is a completion/stability smoke check because this workspace
-does not include a matching ground-truth APE file.
+does not include a matching ground-truth APE file. See the
+[Reproduction scoreboard](reproduction.md) for the shareable summary and
+recommended configs.
 
-
-[![Build test status](assets/build.svg)](https://github.com/koide3/glim/actions/workflows/build.yml)
-[![ROS1](assets/ros1.svg)](https://github.com/koide3/glim_ros1/actions/workflows/docker_push.yml)
-[![ROS2](assets/ros2.svg)](https://github.com/koide3/glim_ros2/actions/workflows/docker_push.yml)
+[![Build](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/build.yml/badge.svg)](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/build.yml)
+[![GitHub stars](https://img.shields.io/github/stars/rsasaki0109/glil_unofficial?style=social)](https://github.com/rsasaki0109/glil_unofficial/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/rsasaki0109/glil_unofficial/blob/dev/LICENSE)
 
 ## Video
 

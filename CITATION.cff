@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this reproduction fork, please cite the upstream GLIM paper and link this repository."
+title: "GLIL CPU Reproduction Fork"
+type: software
+authors:
+  - alias: rsasaki0109
+repository-code: "https://github.com/rsasaki0109/glil_unofficial"
+url: "https://rsasaki0109.github.io/glil_unofficial/"
+license: MIT
+date-released: "2026-04-22"
+abstract: "CPU-focused GLIL reproduction fork with validated LiDAR odometry configs for MegaParticles samples and an official Ouster smoke check."
+keywords:
+  - lidar
+  - slam
+  - odometry
+  - robotics
+  - reproducibility
+  - ros2

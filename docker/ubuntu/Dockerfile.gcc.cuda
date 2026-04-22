@@ -4,8 +4,24 @@ FROM $BASE_IMAGE
 RUN apt-get update \
   && apt-get install --no-install-recommends -y \
     libfmt-dev libspdlog-dev libopencv-dev \
+    git ca-certificates \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
+
+# Replace the base image's gtsam_points with the rsasaki0109 fork that carries
+# the force_fallback_interval / original_values additions (PR rsasaki0109/gtsam_points#1).
+ARG GTSAM_POINTS_REPO=https://github.com/rsasaki0109/gtsam_points.git
+ARG GTSAM_POINTS_REF=pr/force-fallback-determinism
+RUN rm -rf /root/gtsam_points_fork \
+  && git clone --depth 1 --recurse-submodules --branch ${GTSAM_POINTS_REF} ${GTSAM_POINTS_REPO} /root/gtsam_points_fork \
+  && cmake -S /root/gtsam_points_fork -B /root/gtsam_points_fork/build \
+       -DBUILD_WITH_CUDA=ON \
+       -DBUILD_WITH_MARCH_NATIVE=OFF \
+       -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_DEMO=OFF \
+       -DCMAKE_BUILD_TYPE=Release \
+  && cmake --build /root/gtsam_points_fork/build -j$(nproc) \
+  && cmake --install /root/gtsam_points_fork/build \
+  && rm -rf /root/gtsam_points_fork
 
 # with CUDA
 COPY . /root/glil
