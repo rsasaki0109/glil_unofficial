@@ -156,6 +156,15 @@ foreach(module_src IN LISTS module_srcs)
   list(APPEND glil_LIBRARIES ${module_name})
 endforeach()
 
+# Optional extension modules
+add_library(perception_csv_injector SHARED
+  src/glil/perception/perception_csv_injector.cpp
+)
+target_link_libraries(perception_csv_injector
+  glil
+)
+list(APPEND glil_LIBRARIES perception_csv_injector)
+
 
 if(BUILD_WITH_VIEWER)
   # Standard viewer

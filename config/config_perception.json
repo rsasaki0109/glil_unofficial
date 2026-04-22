@@ -1,0 +1,24 @@
+{
+  /*** Perception CSV injector extension ***
+  // To enable this module, add "libperception_csv_injector.so" to
+  // glil_ros/extension_modules in config_ros.json and set enabled=true.
+  // CSV schema:
+  // stamp,class_id,landmark_id,x,y,z,cov_xx,cov_yy,cov_zz,confidence
+  */
+  "perception_csv_injector": {
+    "enabled": false,
+    "csv_path": "",
+    "time_tolerance": 0.05,
+    "consume_once": true,
+    "skip_header": true,
+    "skip_invalid_rows": false,
+    "fail_on_load_error": false,
+    "min_confidence": 0.5,
+    "min_sigma": 0.001,
+    "min_noise_confidence": 0.001,
+    "landmark_symbol": "l",
+    "initialize_missing_landmarks": true,
+    "allowed_class_ids": [],
+    "rejected_class_ids": ["car", "person", "truck", "bus", "bicycle", "motorcycle"]
+  }
+}

@@ -54,6 +54,31 @@ stamp,class_id,landmark_id,x,y,z,cov_xx,cov_xy,cov_xz,cov_yx,cov_yy,cov_yz,cov_z
 Use `load_perception_observations_csv()` for files or streams. Comment lines
 starting with `#` and a header row are skipped.
 
+## Global Mapping CSV Injector
+
+`libperception_csv_injector.so` is an optional extension module that loads the
+CSV format above and injects `PerceptionLandmarkFactor`s when a new global
+submap pose is inserted. It is disabled by default, so existing GLIL runs do not
+change unless the module is explicitly loaded.
+
+To enable it:
+
+1. Add `libperception_csv_injector.so` to `glil_ros.extension_modules` in
+   `config_ros.json`.
+2. Set `perception_csv_injector.enabled` to `true` in `config_perception.json`.
+3. Set `perception_csv_injector.csv_path` to a CSV file. Relative paths are
+   resolved from `global.config_path`.
+
+The injector associates observations to the pending `X(submap_id)` pose by
+matching observation `stamp` against the submap origin frame stamp within
+`time_tolerance` seconds. With `consume_once=true`, each matched observation is
+used for the first associated submap only.
+
+Default class filters reject common dynamic objects such as `car`, `person`, and
+`bus`. For stable landmarks, set `allowed_class_ids` to labels such as `pole`,
+`sign`, `reflector`, or `fiducial`, and keep `initialize_missing_landmarks=true`
+when the CSV carries stable landmark IDs.
+
 ## C++ Example
 
 ```cpp
@@ -101,12 +126,14 @@ Implemented now:
 - CSV/stream observation loading
 - `PerceptionFactorBuilder` for class filtering, landmark initialization, and
   factor insertion
+- `libperception_csv_injector.so` for optional global-mapping CSV factor
+  injection
 - a CTest smoke test that checks residuals, Jacobians, confidence-weighted noise,
   CSV parsing, graph insertion, and landmark optimization
 
 Not implemented yet:
 
 - ROS/ROS 2 perception message adapters
-- timestamp association from asynchronous detector streams to keyframe/submap IDs
+- detector-stream buffering beyond offline CSV timestamp association
 - long-lived landmark lifecycle policy, e.g. pruning, merging, and relabeling
 - robust-kernel configuration for outlier-heavy detectors

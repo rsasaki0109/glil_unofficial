@@ -54,6 +54,14 @@
 ### Global mapping
 - **min_implicit_loop_overlap** (default 0.2) : Minimum overlap rate to create registration error factor.
 
+## Perception factors (config_perception.json)
+
+- **enabled** (default false) : Enables the optional perception CSV injector when `libperception_csv_injector.so` is also listed in `config_ros.json` `extension_modules`.
+- **csv_path** : Path to offline perception observations. Relative paths are resolved from `global.config_path`.
+- **time_tolerance** (default 0.05 s) : Maximum timestamp difference between a CSV observation and a submap origin frame for factor injection.
+- **allowed_class_ids / rejected_class_ids** : Semantic class filters before factors are added. The default rejected list filters common dynamic objects.
+- **initialize_missing_landmarks** (default true) : Inserts a new world-frame landmark value from the current pose and measurement when the stable landmark ID is first observed.
+
 ### Common parameters for sub and global mapping
 - **enable_imu** (default true) : Must be false if the LiDAR-only odometry estimation is used.
 - **registration_error_factor_type** (default "VGICP_GPU") : Registration error computation type. Must be either of *"VGICP"* or *"VGICP_GPU"*.

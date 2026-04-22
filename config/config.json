@@ -8,6 +8,7 @@
     "config_preprocess": "config_preprocess.json",
     "config_odometry": "config_odometry_cpu.json",
     "config_sub_mapping": "config_sub_mapping_cpu.json",
-    "config_global_mapping": "config_global_mapping_cpu.json"
+    "config_global_mapping": "config_global_mapping_cpu.json",
+    "config_perception": "config_perception.json"
   }
 }
