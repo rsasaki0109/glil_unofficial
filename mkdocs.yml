@@ -49,6 +49,7 @@ nav:
     - 'index.md'
     - 'reproduction.md'
     - 'perception_factors.md'
+    - 'exact_sampling.md'
     - 'installation.md'
     - 'docker.md'
     - 'quickstart.md'

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <sstream>
 
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/inference/Symbol.h>
@@ -12,6 +13,8 @@
 #include <gtsam/slam/PriorFactor.h>
 
 #include <glil/factors/perception_landmark_factor.hpp>
+#include <glil/perception/perception_factor_builder.hpp>
+#include <glil/perception/perception_observation_io.hpp>
 
 namespace {
 using gtsam::symbol_shorthand::L;
@@ -58,6 +61,46 @@ void test_noise_from_observation() {
   expect_near(whitened, gtsam::Vector3::Ones(), 1e-12);
 }
 
+void test_csv_loader_and_builder() {
+  const std::string csv =
+    "stamp,class_id,landmark_id,x,y,z,cov_xx,cov_yy,cov_zz,confidence\n"
+    "1.0,pole,7,2.0,0.0,0.0,0.04,0.04,0.09,0.8\n"
+    "1.1,car,8,1.0,0.0,0.0,0.10,0.10,0.10,0.9\n"
+    "1.2,sign,7,2.1,0.0,0.0,0.04,0.04,0.09,0.7\n";
+
+  std::istringstream input(csv);
+  const auto loaded = glil::load_perception_observations_csv(input);
+  assert(loaded.errors.empty());
+  assert(loaded.observations.size() == 3);
+  assert(loaded.observations.front().class_id == "pole");
+
+  glil::PerceptionObservation full_covariance;
+  std::string error;
+  assert(glil::parse_perception_observation_csv_row(
+    "2.0,fiducial,9,1.0,2.0,3.0,0.1,0.01,0.02,0.01,0.2,0.03,0.02,0.03,0.3,0.95", full_covariance, &error));
+  assert(std::abs(full_covariance.covariance(0, 1) - 0.01) < 1e-12);
+  assert(std::abs(full_covariance.covariance(2, 2) - 0.3) < 1e-12);
+
+  glil::PerceptionFactorBuilderParams params;
+  params.allowed_class_ids = {"pole", "sign"};
+  params.min_confidence = 0.5;
+  glil::PerceptionFactorBuilder builder(params);
+
+  gtsam::NonlinearFactorGraph graph;
+  gtsam::Values pending_values;
+  const gtsam::Pose3 pose(gtsam::Rot3(), gtsam::Point3(10.0, 0.0, 0.0));
+  const auto summary = builder.add_observations(graph, pending_values, X(3), pose, loaded.observations);
+
+  assert(summary.accepted == 2);
+  assert(summary.rejected_class == 1);
+  assert(summary.inserted_landmarks == 1);
+  assert(summary.reused_landmarks == 1);
+  assert(graph.size() == 2);
+  assert(pending_values.exists(L(7)));
+  assert(!pending_values.exists(L(8)));
+  expect_near(pending_values.at<gtsam::Point3>(L(7)), gtsam::Point3(12.0, 0.0, 0.0), 1e-12);
+}
+
 void test_landmark_optimization() {
   const gtsam::Pose3 pose(gtsam::Rot3::RzRyRx(0.0, 0.0, kPi / 2.0), gtsam::Point3(1.0, 2.0, 3.0));
   const gtsam::Point3 measured_sensor(2.0, 0.0, 0.0);
@@ -81,6 +124,7 @@ void test_landmark_optimization() {
 int main() {
   test_zero_error_and_jacobians();
   test_noise_from_observation();
+  test_csv_loader_and_builder();
   test_landmark_optimization();
   return 0;
 }

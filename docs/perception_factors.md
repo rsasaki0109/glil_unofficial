@@ -34,10 +34,31 @@ Use `glil::PerceptionObservation` as the frontend-neutral container:
 GTSAM diagonal noise model. Lower confidence increases sigma by
 `1 / sqrt(confidence)`.
 
+## CSV Input
+
+Offline detectors can feed observations with a compact CSV file. The diagonal
+covariance schema is:
+
+```csv
+stamp,class_id,landmark_id,x,y,z,cov_xx,cov_yy,cov_zz,confidence
+12.3,pole,42,4.0,0.2,1.1,0.04,0.04,0.09,0.8
+```
+
+For detectors that estimate cross-axis covariance, the loader also accepts a full
+3x3 covariance layout:
+
+```csv
+stamp,class_id,landmark_id,x,y,z,cov_xx,cov_xy,cov_xz,cov_yx,cov_yy,cov_yz,cov_zx,cov_zy,cov_zz,confidence
+```
+
+Use `load_perception_observations_csv()` for files or streams. Comment lines
+starting with `#` and a header row are skipped.
+
 ## C++ Example
 
 ```cpp
 #include <glil/factors/perception_landmark_factor.hpp>
+#include <glil/perception/perception_factor_builder.hpp>
 
 using gtsam::symbol_shorthand::L;
 using gtsam::symbol_shorthand::X;
@@ -50,13 +71,12 @@ obs.position_sensor = gtsam::Point3(4.0, 0.2, 1.1);
 obs.covariance = gtsam::Matrix3::Identity() * 0.04;
 obs.confidence = 0.8;
 
-auto noise = glil::make_perception_noise_model(obs);
-graph.emplace_shared<glil::PerceptionLandmarkFactor>(X(keyframe_id), L(obs.landmark_id), obs, noise);
+glil::PerceptionFactorBuilderParams params;
+params.allowed_class_ids = {"pole", "sign", "fiducial"};
+params.min_confidence = 0.5;
 
-if (!values.exists(L(obs.landmark_id))) {
-  const auto landmark_world = current_pose.transformFrom(obs.position_sensor);
-  values.insert(L(obs.landmark_id), landmark_world);
-}
+glil::PerceptionFactorBuilder builder(params);
+builder.add_observation(graph, values, X(keyframe_id), current_pose, obs, &current_estimate);
 ```
 
 ## Integration Point
@@ -78,12 +98,15 @@ Implemented now:
 - `PerceptionObservation`
 - `make_perception_noise_model()`
 - `PerceptionLandmarkFactor`
+- CSV/stream observation loading
+- `PerceptionFactorBuilder` for class filtering, landmark initialization, and
+  factor insertion
 - a CTest smoke test that checks residuals, Jacobians, confidence-weighted noise,
-  and landmark optimization
+  CSV parsing, graph insertion, and landmark optimization
 
 Not implemented yet:
 
 - ROS/ROS 2 perception message adapters
-- JSON/CSV observation loader
-- data association and landmark lifecycle policy
+- timestamp association from asynchronous detector streams to keyframe/submap IDs
+- long-lived landmark lifecycle policy, e.g. pruning, merging, and relabeling
 - robust-kernel configuration for outlier-heavy detectors

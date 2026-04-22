@@ -61,6 +61,9 @@ add_library(glil SHARED
   src/glil/factors/integrated_coreset_factor.cpp
   src/glil/factors/integrated_vgicp_coreset_factor.cpp
   src/glil/factors/perception_landmark_factor.cpp
+  # perception
+  src/glil/perception/perception_factor_builder.cpp
+  src/glil/perception/perception_observation_io.cpp
   # util
   src/glil/util/config.cpp
   src/glil/util/logging.cpp
