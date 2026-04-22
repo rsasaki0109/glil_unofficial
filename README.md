@@ -1,10 +1,32 @@
 ![GLIL](docs/assets/logo2.png "GLIL Logo")
 
+# GLIL CPU Reproduction Fork
+
+Reproducible CPU-focused GLIL configs for LiDAR odometry experiments. This fork
+packages the 2026-04 MegaParticles reproduction work, the deterministic
+`outdoor_hard_01a` recipe, and an official Ouster sample smoke check.
+
+[![GitHub stars](https://img.shields.io/github/stars/rsasaki0109/glil_unofficial?style=social)](https://github.com/rsasaki0109/glil_unofficial/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![ROS 2](https://img.shields.io/badge/ROS-2-22314E.svg)](https://docs.ros.org/)
+
+Why this fork is useful:
+
+- Manifest-verified MegaParticles sample results: 3/3 Track B+C PASS.
+- Deterministic hard config: `outdoor_hard_01a` 5/5 byte-identical at
+  RMSE `0.906313`.
+- Ouster sample guardrails: corrected `acc_scale=1.0`, clean smoke
+  completion, no fallback/bitset abort.
+- Drop-in config directories for reproducing the validated local runs.
+
+If these reproduction configs save you time, starring the repo helps other
+robotics and LiDAR-SLAM users find it.
+
 ## Introduction
 
 **GLIL** is a versatile and extensible range-based 3D mapping framework.
 
-- ***Accuracy:*** GLIL is based on direct multi-scan registration error minimization on factor graphs that enables to accurately retain the consistency of mappint results. GPU acceleration is supported to maximize the mapping speed and quality.
+- ***Accuracy:*** GLIL is based on direct multi-scan registration error minimization on factor graphs that enables to accurately retain the consistency of mapping results. GPU acceleration is supported to maximize the mapping speed and quality.
 - ***Easy-to-use:*** GLIL offers an interactive map correction interface that enables the user to manually correct mapping failures and easily refine mapping results.
 - ***Versatility:*** As we eliminated sensor-specific processes, GLIL can be applied to any kind of range sensors including:
     - Spinning-type LiDAR (e.g., Velodyne HDL32e)
@@ -15,7 +37,7 @@
 
 **Documentation: [https://koide3.github.io/glim/](https://koide3.github.io/glim/)**  
 **Docker hub: [koide3/glim_ros1](https://hub.docker.com/repository/docker/koide3/glim_ros1/tags), [koide3/glim_ros2](https://hub.docker.com/repository/docker/koide3/glim_ros2/tags)**  
-**Related packges:** [gtsam_points](https://github.com/koide3/gtsam_points), [glim](https://github.com/koide3/glim), [glim_ros1](https://github.com/koide3/glim_ros1), [glim_ros2](https://github.com/koide3/glim_ros2), [glim_ext](https://github.com/koide3/glim_ext)
+**Related packages:** [gtsam_points](https://github.com/koide3/gtsam_points), [glim](https://github.com/koide3/glim), [glim_ros1](https://github.com/koide3/glim_ros1), [glim_ros2](https://github.com/koide3/glim_ros2), [glim_ext](https://github.com/koide3/glim_ext)
 
 Tested on Ubuntu 22.04 /24.04 with CUDA 12.2, and NVIDIA Jetson Orin.
 
@@ -60,7 +82,7 @@ accuracy-table reproduction.
 
 If you find this package useful for your project, please consider leaving a comment [here](https://github.com/koide3/glim/issues/19). It would help the author receive recognition in his organization and keep working on this project.
 
-[![Build](https://github.com/koide3/glim/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/glim/actions/workflows/build.yml)
+[![Build](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/build.yml/badge.svg)](https://github.com/rsasaki0109/glil_unofficial/actions/workflows/build.yml)
 [![ROS1](https://github.com/koide3/glim_ros1/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/glim_ros1/actions/workflows/build.yml)
 [![ROS2](https://github.com/koide3/glim_ros2/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/glim_ros2/actions/workflows/build.yml)
 [![EXT](https://github.com/koide3/glim_ext/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/glim_ext/actions/workflows/build.yml)
