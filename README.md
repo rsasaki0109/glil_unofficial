@@ -19,26 +19,44 @@
 
 Tested on Ubuntu 22.04 /24.04 with CUDA 12.2, and NVIDIA Jetson Orin.
 
-## Fork Reproduction Notes
+## Fork Reproduction Status (2026-04-22)
 
-This fork carries the 2026-04 GLIL CPU reproduction session configs and depends
-on `rsasaki0109/gtsam_points#1` for the opt-in fixed-lag smoother fallback
-cadence and the `FastOccupancyGrid` coordinate guard.
+This fork carries the 2026-04 GLIL CPU reproduction configs. The local
+reproduction workspace verifies the available evidence bundle with a
+manifest-driven runner and records the headline results below.
 
-Recommended local-result configs:
+The fork depends on `rsasaki0109/gtsam_points#1` for the opt-in fixed-lag
+smoother fallback cadence and the `FastOccupancyGrid` non-finite/out-of-range
+coordinate guard.
 
-| dataset | config | result |
+### Verified Local Results
+
+| dataset | kind | status | RMSE | upstream GLIM | playback mean | Track B | Track C | traj sha256 |
+|---|---|---|---:|---:|---:|---|---|---|
+| `indoor_easy_01` | APE | PASS | `1.019250` | `3.383012` | `1.000x` | PASS | PASS | `93ff42b99c304dd7...` |
+| `outdoor_hard_01a` | APE | PASS | `0.906313` | `4.321651` | `1.000x` | PASS | PASS | `9968e55d9836f428...` |
+| `outdoor_kidnap_a` | APE | PASS | `20.349845` | `21.701012` | `1.000x` | PASS | PASS | `de973cbf972bc4ca...` |
+| `os1_128_01_downsampled` | smoke | WARN | NA | NA | `0.201x` | NA | NA | `c384c08fc8b187eb...` |
+
+Track B is upstream GLIM RMSE + 20%. Track C is playback mean `>= 0.95x`.
+Both tracks apply only to entries with ground-truth APE. The overall manifest
+status is `WARN` because the Ouster smoke run is below the playback warning
+threshold, not because of a stability or accuracy failure.
+
+### Recommended Configs
+
+| dataset | config | note |
 |---|---|---|
-| `indoor_easy_01` | `config_fair_glil_true_sample_t128_indoor_d4k_k1_rw_csp15_ct64_lag4` | RMSE `1.019 m`, Track B+C PASS |
-| `outdoor_hard_01a` | `config_fair_glil_true_sample_t128_hard_csp15_ct64_lag4_ffb100_skip16` | RMSE `0.906313`, 5/5 byte-identical, Track B+C PASS |
-| `outdoor_kidnap_a` | `config_fair_glil_true_sample_t128_k1` | RMSE `20.349845`, Track B+C PASS |
+| `indoor_easy_01` | `config_fair_glil_true_sample_t128_indoor_d4k_k1_rw_csp15_ct64_lag4` | RMSE `1.019250`, Track B/C PASS |
+| `outdoor_hard_01a` | `config_fair_glil_true_sample_t128_hard_csp15_ct64_lag4_ffb100_skip16` | RMSE `0.906313`, 5/5 byte-identical hard recipe, Track B/C PASS |
+| `outdoor_kidnap_a` | `config_fair_glil_true_sample_t128_k1` | RMSE `20.349845`, Track B/C PASS |
+| `os1_128_01_downsampled` | `config_official_os1_128_01_downsampled_acc1` | official Ouster smoke; `1123` frames, `1122` pose rows, fallback `0`, bitset abort `0` |
 
-The official GLIM/GLIL Ouster sample `os1_128_01_downsampled` is covered by
-`config_official_os1_128_01_downsampled_acc1`. That bag publishes IMU
-accelerations in m/s^2, so `glil_ros.acc_scale` must be `1.0`; using `9.80665`
-is an invalid scale for this sample and can drive occupancy coordinates out of
-range. With the guarded `gtsam_points` dependency, the corrected config
-completed `1123` frames with fallback `0` and bitset abort `0`.
+The Ouster bag publishes IMU accelerations in m/s^2, so `glil_ros.acc_scale`
+must be `1.0`; using `9.80665` is invalid for this sample and can drive
+occupancy coordinates out of range. This sample has no bundled local GT APE
+reference, so it is a completion/stability regression check rather than a paper
+accuracy-table reproduction.
 
 If you find this package useful for your project, please consider leaving a comment [here](https://github.com/koide3/glim/issues/19). It would help the author receive recognition in his organization and keep working on this project.
 
