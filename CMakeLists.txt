@@ -60,6 +60,7 @@ add_library(glil SHARED
   # factors
   src/glil/factors/integrated_coreset_factor.cpp
   src/glil/factors/integrated_vgicp_coreset_factor.cpp
+  src/glil/factors/perception_landmark_factor.cpp
   # util
   src/glil/util/config.cpp
   src/glil/util/logging.cpp
@@ -182,6 +183,22 @@ if(BUILD_WITH_VIEWER)
   )
 
   list(APPEND glil_LIBRARIES standard_viewer interactive_viewer memory_monitor)
+endif()
+
+
+###########
+## Tests ##
+###########
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(test_perception_landmark_factor
+    tests/test_perception_landmark_factor.cpp
+  )
+  target_link_libraries(test_perception_landmark_factor
+    glil
+  )
+  add_test(NAME perception_landmark_factor COMMAND test_perception_landmark_factor)
 endif()
 
 #############

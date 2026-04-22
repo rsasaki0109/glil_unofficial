@@ -12,6 +12,7 @@
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam_points/factors/linear_damping_factor.hpp>
 #include <gtsam_points/factors/rotate_vector3_factor.hpp>
+#include <glil/factors/perception_landmark_factor.hpp>
 
 BOOST_CLASS_EXPORT_GUID(gtsam::noiseModel::Unit, "gtsam_noiseModel::Unit");
 BOOST_CLASS_EXPORT_GUID(gtsam::noiseModel::Constrained, "gtsam_noiseModel::Constrained");
@@ -55,3 +56,5 @@ BOOST_CLASS_EXPORT_GUID(gtsam::ImuFactor, "gtsam::ImuFactor");
 
 BOOST_CLASS_EXPORT_GUID(gtsam_points::LinearDampingFactor, "gtsam_points::LinearDampingFactor");
 BOOST_CLASS_EXPORT_GUID(gtsam_points::RotateVector3Factor, "gtsam_points::RotateVector3Factor");
+
+BOOST_CLASS_EXPORT_GUID(glil::PerceptionLandmarkFactor, "glil::PerceptionLandmarkFactor");
