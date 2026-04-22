@@ -10,6 +10,23 @@ packages the 2026-04 MegaParticles reproduction work, the deterministic
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![ROS 2](https://img.shields.io/badge/ROS-2-22314E.svg)](https://docs.ros.org/)
 
+![Reproduction scorecard](docs/assets/reproduction-scorecard.svg)
+
+## Start Here
+
+| If you want to... | Use this |
+|---|---|
+| Check the headline evidence | [Reproduction scoreboard](docs/reproduction.md) |
+| Pick the validated config | [Recommended Configs](#recommended-configs) |
+| Read the generated docs | <https://rsasaki0109.github.io/glil_unofficial/> |
+| Report your own run | [Reproduction report issue](https://github.com/rsasaki0109/glil_unofficial/issues/new?template=reproduction_report.md) |
+
+## Shareable Pitch
+
+> GLIL CPU Reproduction Fork packages reproducible LiDAR odometry configs for
+> MegaParticles samples and the official Ouster smoke path: 3/3 Track B+C PASS,
+> `outdoor_hard_01a` at RMSE `0.906313`, and a 5/5 byte-identical hard recipe.
+
 Why this fork is useful:
 
 - Manifest-verified MegaParticles sample results: 3/3 Track B+C PASS.
@@ -35,8 +52,11 @@ robotics and LiDAR-SLAM users find it.
     - RGB-D camera (e.g., Microsoft Azure Kinect)
 - ***Extensibility:*** GLIL provides the global callback slot mechanism that allows to access the internal states of the mapping process and insert additional constraints to the factor graph. We also release [glim_ext](https://github.com/koide3/glim_ext) that offers example implementations of several extension functions (e.g., explicit loop detection, LiDAR-Visual-Inertial odometry estimation).
 
-**Documentation: [https://koide3.github.io/glim/](https://koide3.github.io/glim/)**  
-**Docker hub: [koide3/glim_ros1](https://hub.docker.com/repository/docker/koide3/glim_ros1/tags), [koide3/glim_ros2](https://hub.docker.com/repository/docker/koide3/glim_ros2/tags)**  
+**Fork docs:** [https://rsasaki0109.github.io/glil_unofficial/](https://rsasaki0109.github.io/glil_unofficial/)
+
+**Upstream GLIM docs:** [https://koide3.github.io/glim/](https://koide3.github.io/glim/)
+
+**Docker hub:** [koide3/glim_ros1](https://hub.docker.com/repository/docker/koide3/glim_ros1/tags), [koide3/glim_ros2](https://hub.docker.com/repository/docker/koide3/glim_ros2/tags)
 **Related packages:** [gtsam_points](https://github.com/koide3/gtsam_points), [glim](https://github.com/koide3/glim), [glim_ros1](https://github.com/koide3/glim_ros1), [glim_ros2](https://github.com/koide3/glim_ros2), [glim_ext](https://github.com/koide3/glim_ext)
 
 Tested on Ubuntu 22.04 /24.04 with CUDA 12.2, and NVIDIA Jetson Orin.

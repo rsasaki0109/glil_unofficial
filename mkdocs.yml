@@ -46,6 +46,7 @@ extra_css:
 
 nav:
     - 'index.md'
+    - 'reproduction.md'
     - 'installation.md'
     - 'docker.md'
     - 'quickstart.md'
