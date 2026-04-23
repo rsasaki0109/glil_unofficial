@@ -140,6 +140,51 @@ update `config_perception.json`, add `libperception_csv_injector.so` to
 `config_ros.json`, and link both files from `config.json`. Existing JSON files
 are parsed with comment support, but rewritten as plain formatted JSON.
 
+## Perception Workflow
+
+Use `glil_perception_workflow` when preparing a dataset run. It keeps the
+landmark CSV, runnable config root, and readiness report together so the
+perception side of an experiment can be archived or attached to a reproduction
+issue.
+
+For point-cloud batches, the workflow runs extraction, config generation, and
+reporting in one pass:
+
+```bash
+glil_perception_workflow \
+  --batch-csv frames.csv \
+  --base-dir ./scans \
+  --cloud-format kitti-bin \
+  --run-dir perception_run \
+  --voxel 1.0 \
+  --min-points 8 \
+  --max-landmarks 256 \
+  --time-tolerance 0.10
+```
+
+This creates `perception_run/cloud_landmarks.csv`,
+`perception_run/config/config_perception.json`, and
+`perception_run/perception_report.md`. The generated config references the CSV
+relative to `perception_run/config`, so the run directory can be archived as one
+bundle. Add `--submap-stamps submaps.csv` to measure how many observations can
+actually match GLIL submap timestamps.
+
+For an existing detector CSV, skip extraction and generate only the runnable
+config root and report:
+
+```bash
+glil_perception_workflow \
+  --observations-csv detector_landmarks.csv \
+  --run-dir perception_run \
+  --allowed-class-ids pole,sign,reflector \
+  --rejected-class-ids car,person,bus \
+  --report-format csv
+```
+
+Use `--tool-dir build` when the tools are built locally but not installed. The
+script also accepts explicit `--extractor`, `--config-generator`, and
+`--report-tool` paths for CI jobs or containerized pipelines.
+
 ## Perception Factor Report
 
 Use `glil_perception_factor_report` before a long mapping run to check whether a
@@ -252,14 +297,16 @@ Implemented now:
   real point clouds into perception-observation CSVs
 - `glil_perception_config_generator` and extractor `--config-root` wiring for
   turning a perception CSV into a runnable config root
+- `glil_perception_workflow` for one-command point-cloud or existing-CSV
+  preparation of the landmark CSV, runnable config root, and readiness report
 - `glil_perception_factor_report` for reporting perception CSV factor readiness,
   class filtering, confidence, covariance, and timestamp match rates
 - `libperception_csv_injector.so` for optional global-mapping CSV factor
   injection
 - `config/sample_perception_observations.csv` for CSV injector smoke tests
-- a CTest smoke test that checks residuals, Jacobians, confidence-weighted noise,
-  CSV parsing, cloud landmark extraction, robust graph insertion, and landmark
-  optimization
+- CTest smoke tests that check residuals, Jacobians, confidence-weighted noise,
+  CSV parsing, cloud landmark extraction, robust graph insertion, landmark
+  optimization, report generation, and existing-CSV workflow wiring
 
 Not implemented yet:
 

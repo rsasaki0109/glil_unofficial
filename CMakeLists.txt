@@ -222,8 +222,8 @@ if(BUILD_TOOLS)
   add_executable(glil_perception_config_generator
     tools/generate_perception_config.cpp
   )
-  target_link_libraries(glil_perception_config_generator
-    glil
+  target_include_directories(glil_perception_config_generator PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/json/include
   )
 
   add_executable(glil_perception_factor_report
@@ -273,6 +273,16 @@ if(BUILD_TESTING)
         --config-perception ${CMAKE_CURRENT_SOURCE_DIR}/config/config_perception.json
         --format csv
     )
+    add_test(
+      NAME perception_workflow_existing_csv
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tools/glil_perception_workflow
+        --observations-csv ${CMAKE_CURRENT_SOURCE_DIR}/config/sample_perception_observations.csv
+        --run-dir ${CMAKE_CURRENT_BINARY_DIR}/perception_workflow_smoke
+        --config-generator $<TARGET_FILE:glil_perception_config_generator>
+        --report-tool $<TARGET_FILE:glil_perception_factor_report>
+        --report-format csv
+        --allowed-class-ids pole,sign,reflector
+    )
   endif()
 endif()
 
@@ -291,6 +301,9 @@ install(TARGETS caratheodory ${glil_LIBRARIES}
 if(BUILD_TOOLS)
   install(TARGETS ${glil_TOOL_TARGETS}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  )
+  install(PROGRAMS tools/glil_perception_workflow
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
 endif()
 set(CMAKE_CONFIG_INSTALL_DIR

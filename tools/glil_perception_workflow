@@ -1,0 +1,315 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+print_help() {
+  cat <<'EOF'
+Usage:
+  glil_perception_workflow --batch-csv frames.csv --run-dir perception_run [options]
+  glil_perception_workflow --input scan.bin --run-dir perception_run --stamp 12.3 [options]
+  glil_perception_workflow --observations-csv landmarks.csv --run-dir perception_run [options]
+
+Inputs:
+  --batch-csv PATH          Batch cloud CSV with path,stamp,tx,ty,tz,roll,pitch,yaw
+  --input PATH              Single cloud input
+  --observations-csv PATH   Existing perception observation CSV; skips extraction
+  --run-dir DIR             Output workspace for generated CSV/config/report
+  --landmarks-csv PATH      Output CSV for extracted landmarks
+  --config-root DIR         Config root to write/update
+  --report PATH             Report output path
+  --report-format F         markdown|csv (default: markdown)
+
+Tool discovery:
+  --tool-dir DIR            Directory containing GLIL tool executables
+  --extractor PATH          glil_cloud_landmark_extractor path
+  --config-generator PATH   glil_perception_config_generator path
+  --report-tool PATH        glil_perception_factor_report path
+
+Cloud extraction options:
+  --cloud-format F          auto|gtsam|pcd|xyz|kitti-bin|compact-bin
+  --base-dir PATH           Base directory for relative batch cloud paths
+  --path-column NAME        Batch cloud path column name
+  --cloud-stamp-column NAME Batch timestamp column name
+  --pose-columns CSV        Batch pose columns tx,ty,tz,roll,pitch,yaw
+  --stamp T                 Single-cloud timestamp
+  --pose-xyzrpy VALUES      Single-cloud tx ty tz roll pitch yaw, radians
+  --voxel M                 World-frame landmark voxel size
+  --min-points N            Minimum points per landmark voxel
+  --max-landmarks N         Keep the densest N landmarks per cloud; 0 keeps all
+  --min-range M             Reject points closer than M; 0 disables
+  --max-range M             Reject points farther than M; 0 disables
+  --min-covariance V        Minimum covariance diagonal variance
+  --confidence-points N     Points needed for confidence 1.0
+  --class-id NAME           Output CSV class_id label
+  --full-covariance         Write full 3x3 covariance columns
+
+Injector/report options:
+  --time-tolerance SEC      CSV/submap timestamp tolerance
+  --min-confidence V        Minimum injector/report confidence
+  --min-sigma V             Minimum covariance sigma floor
+  --min-noise-confidence V  Confidence floor for noise scaling
+  --robust-loss NAME        NONE|HUBER|CAUCHY|TUKEY
+  --robust-loss-width V     Robust loss width
+  --allowed-class-ids CSV   Injector allow list
+  --rejected-class-ids CSV  Injector reject list
+  --landmark-symbol C       GTSAM symbol prefix for landmarks
+  --submap-stamps PATH      Optional submap stamp CSV/list for report matching
+  --submap-stamp-column N   Timestamp column in --submap-stamps
+  --skip-invalid-rows       Continue after invalid batch/observation rows
+  --fail-on-load-error      Disable injector if CSV load has errors
+  --no-consume-once         Allow an observation to match multiple submaps
+  --no-skip-header          Treat the first observation row as data
+  --no-update-ros           Do not update config_ros.json extension_modules
+  --no-update-config-json   Do not update config.json links
+  --dry-run                 Print commands without running them
+  --quiet                   Reduce workflow output
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+need_value() {
+  local name="$1"
+  shift
+  if [[ $# -eq 0 || -z "${1:-}" ]]; then
+    die "missing value for ${name}"
+  fi
+  printf '%s' "$1"
+}
+
+parent_dir() {
+  local path="$1"
+  local dir
+  dir="$(dirname "$path")"
+  if [[ "$dir" != "." ]]; then
+    mkdir -p "$dir"
+  fi
+}
+
+quote_cmd() {
+  local arg
+  for arg in "$@"; do
+    printf '%q ' "$arg"
+  done
+}
+
+run_cmd() {
+  if [[ "$quiet" -eq 0 || "$dry_run" -eq 1 ]]; then
+    echo "+ $(quote_cmd "$@")" >&2
+  fi
+  if [[ "$dry_run" -eq 0 ]]; then
+    "$@"
+  fi
+}
+
+resolve_tool() {
+  local explicit="$1"
+  local name="$2"
+  if [[ -n "$explicit" ]]; then
+    printf '%s' "$explicit"
+  elif [[ -n "$tool_dir" && -x "${tool_dir}/${name}" ]]; then
+    printf '%s' "${tool_dir}/${name}"
+  else
+    printf '%s' "$name"
+  fi
+}
+
+require_tool() {
+  local tool="$1"
+  if [[ "$tool" == */* ]]; then
+    [[ -x "$tool" ]] || die "tool is not executable: ${tool}"
+  else
+    command -v "$tool" >/dev/null 2>&1 || die "tool not found in PATH: ${tool}"
+  fi
+}
+
+extension_for_report_format() {
+  case "$1" in
+    markdown) printf 'md' ;;
+    csv) printf 'csv' ;;
+    *) die "unsupported report format: $1" ;;
+  esac
+}
+
+relative_to_config_root() {
+  local path="$1"
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -m --relative-to="$config_root" "$path"
+    return
+  fi
+  python3 - "$config_root" "$path" <<'PYREL'
+import os
+import sys
+
+print(os.path.relpath(os.path.abspath(sys.argv[2]), os.path.abspath(sys.argv[1])))
+PYREL
+}
+
+run_dir=""
+batch_csv=""
+input_cloud=""
+observations_csv=""
+landmarks_csv=""
+config_root=""
+report_path=""
+report_format="markdown"
+tool_dir=""
+extractor_path=""
+config_generator_path=""
+report_tool_path=""
+submap_stamps=""
+submap_stamp_column="stamp"
+quiet=0
+dry_run=0
+
+extract_args=()
+config_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h)
+      print_help
+      exit 0
+      ;;
+    --run-dir)
+      run_dir="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --batch-csv)
+      batch_csv="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --input)
+      input_cloud="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --observations-csv|--csv)
+      observations_csv="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --landmarks-csv|--output)
+      landmarks_csv="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --config-root)
+      config_root="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --report|--report-output)
+      report_path="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --report-format)
+      report_format="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --tool-dir)
+      tool_dir="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --extractor)
+      extractor_path="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --config-generator)
+      config_generator_path="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --report-tool)
+      report_tool_path="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --cloud-format)
+      extract_args+=("--format" "$(need_value "$1" "${2:-}")"); shift 2 ;;
+    --base-dir|--path-column|--pose-columns|--stamp|--voxel|--min-points|--max-landmarks|--min-range|--max-range|--min-covariance|--confidence-points|--class-id)
+      extract_args+=("$1" "$(need_value "$1" "${2:-}")"); shift 2 ;;
+    --cloud-stamp-column)
+      extract_args+=("--stamp-column" "$(need_value "$1" "${2:-}")"); shift 2 ;;
+    --pose-xyzrpy)
+      [[ $# -ge 7 ]] || die "missing values for --pose-xyzrpy"
+      extract_args+=("--pose-xyzrpy" "$2" "$3" "$4" "$5" "$6" "$7")
+      shift 7
+      ;;
+    --full-covariance)
+      extract_args+=("$1"); shift ;;
+    --time-tolerance|--min-confidence|--min-sigma|--min-noise-confidence|--robust-loss|--robust-loss-width|--allowed-class-ids|--rejected-class-ids|--landmark-symbol)
+      config_args+=("$1" "$(need_value "$1" "${2:-}")"); shift 2 ;;
+    --submap-stamps)
+      submap_stamps="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --submap-stamp-column)
+      submap_stamp_column="$(need_value "$1" "${2:-}")"; shift 2 ;;
+    --skip-invalid-rows|--fail-on-load-error|--no-consume-once|--no-skip-header|--no-update-ros|--no-update-config-json)
+      config_args+=("$1"); shift ;;
+    --dry-run)
+      dry_run=1; shift ;;
+    --quiet)
+      quiet=1; shift ;;
+    *)
+      die "unknown option: $1"
+      ;;
+  esac
+done
+
+case "$report_format" in
+  markdown|csv) ;;
+  *) die "--report-format must be markdown or csv" ;;
+esac
+
+source_count=0
+[[ -n "$batch_csv" ]] && source_count=$((source_count + 1))
+[[ -n "$input_cloud" ]] && source_count=$((source_count + 1))
+[[ -n "$observations_csv" ]] && source_count=$((source_count + 1))
+[[ "$source_count" -eq 1 ]] || die "choose exactly one of --batch-csv, --input, or --observations-csv"
+
+if [[ -n "$run_dir" ]]; then
+  mkdir -p "$run_dir"
+  [[ -n "$config_root" ]] || config_root="${run_dir}/config"
+  if [[ -z "$report_path" ]]; then
+    report_path="${run_dir}/perception_report.$(extension_for_report_format "$report_format")"
+  fi
+  if [[ -z "$observations_csv" && -z "$landmarks_csv" ]]; then
+    landmarks_csv="${run_dir}/cloud_landmarks.csv"
+  fi
+fi
+
+[[ -n "$config_root" ]] || die "missing --config-root or --run-dir"
+[[ -n "$report_path" ]] || report_path="${config_root}/perception_report.$(extension_for_report_format "$report_format")"
+
+extractor="$(resolve_tool "$extractor_path" glil_cloud_landmark_extractor)"
+config_generator="$(resolve_tool "$config_generator_path" glil_perception_config_generator)"
+report_tool="$(resolve_tool "$report_tool_path" glil_perception_factor_report)"
+
+if [[ "$quiet" -eq 1 ]]; then
+  config_args+=("--quiet")
+fi
+
+require_tool "$config_generator"
+
+if [[ -n "$observations_csv" ]]; then
+  active_csv="$observations_csv"
+  mkdir -p "$config_root"
+  parent_dir "$report_path"
+else
+  [[ -n "$landmarks_csv" ]] || die "missing --landmarks-csv or --run-dir"
+  require_tool "$extractor"
+  active_csv="$landmarks_csv"
+  parent_dir "$landmarks_csv"
+  mkdir -p "$config_root"
+  parent_dir "$report_path"
+
+  extraction_cmd=("$extractor")
+  if [[ -n "$batch_csv" ]]; then
+    extraction_cmd+=("--batch-csv" "$batch_csv")
+  else
+    extraction_cmd+=("--input" "$input_cloud")
+  fi
+  extraction_cmd+=(
+    --output "$landmarks_csv"
+    "${extract_args[@]}"
+  )
+  run_cmd "${extraction_cmd[@]}"
+fi
+
+config_csv_path="$(relative_to_config_root "$active_csv")"
+run_cmd "$config_generator" \
+  --config-root "$config_root" \
+  --csv "$config_csv_path" \
+  "${config_args[@]}"
+
+require_tool "$report_tool"
+report_cmd=(
+  "$report_tool"
+  --csv "$active_csv"
+  --config-root "$config_root"
+  --format "$report_format"
+  --output "$report_path"
+)
+if [[ -n "$submap_stamps" ]]; then
+  report_cmd+=(--submap-stamps "$submap_stamps" --stamp-column "$submap_stamp_column")
+fi
+run_cmd "${report_cmd[@]}"
+
+if [[ "$quiet" -eq 0 ]]; then
+  echo "perception workflow complete" >&2
+  echo "  observations_csv: ${active_csv}" >&2
+  echo "  config_root:      ${config_root}" >&2
+  echo "  report:           ${report_path}" >&2
+fi
