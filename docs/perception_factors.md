@@ -260,6 +260,44 @@ Use `--strict` to fail a CI step when any run directory is missing its APE
 file. Use `--format csv` to pipe the rows into an external spreadsheet or
 additional processing.
 
+### Real-run example: indoor_easy_01
+
+Running the MegaParticles `indoor_easy_01` bag twice under the same binary
+and comparing the two run directories produces the following table:
+
+| run | perception | status | RMSE (m) | ΔRMSE vs baseline | accepted obs | accepted match rate | rejected class | rejected low conf | unique landmarks |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| baseline | off | PASS | 1.019250 | 0.000000 | NA | NA | NA | NA | NA |
+| perception | on | PASS | 1.019281 | +0.000031 | 8 | 100.000000% | 0 | 0 | 3 |
+
+The `perception` run used the baseline config with
+`libperception_csv_injector.so` loaded and a `config_perception.json` pointing
+at a CSV of eight synthetic observations (three `pole`, three `reflector`, two
+`sign`) whose timestamps were taken from the baseline's LiDAR stream.
+
+Two honest observations from this run:
+
+- The ΔRMSE of `+31 µm` is below the mapping pipeline's numerical noise floor.
+  The perception factors did not meaningfully change the trajectory in this
+  experiment, and this table is not evidence that perception factors improve
+  accuracy on their own.
+- `accepted obs = 8` in the table comes from the `glil_perception_factor_report`
+  readiness check, which confirms the CSV and config would accept all eight
+  observations. The runtime injection log for the same run reports
+  `poses=1 matched=1 accepted=1 inserted_landmarks=1`: only one submap stamp
+  aligned within `time_tolerance=2.0s` with `consume_once=true`, so seven of
+  the eight observations did not attach to a factor. Runtime-injected factor
+  counts depend on how well the observation stamps align with submap
+  boundaries, which the readiness report cannot predict.
+
+The value of this run is end-to-end pipeline validation: the CSV loader, the
+injector extension module, and the global-mapping factor builder all produced
+the expected log line (`perception CSV injection poses=... matched=...
+accepted=...`) and left the rest of the GLIL state consistent with the
+baseline. A perception experiment that aims to influence RMSE will need a
+detector that produces observations aligned with submap boundaries and enough
+matched factors to move the optimum beyond the mapping noise floor.
+
 ## Global Mapping CSV Injector
 
 `libperception_csv_injector.so` is an optional extension module that loads the
