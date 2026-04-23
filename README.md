@@ -37,6 +37,7 @@ CPU/CUDA Docker builds.
 | Summarize coreset benchmark CSVs | `glil_coreset_benchmark_summary --csv run=coreset_benchmark.csv --format markdown` |
 | Run perception CSV/config/report workflow | `glil_perception_workflow --batch-csv frames.csv --run-dir perception_run --cloud-format kitti-bin` |
 | Summarize perception reports | `glil_perception_report_summary --report run=perception_report.csv --format markdown` |
+| Compare a baseline and perception run | `glil_perception_run_compare --run baseline=run_base --run perception=run_perc --format markdown` |
 | Generate perception CSV from point clouds | `glil_cloud_landmark_extractor --batch-csv frames.csv --output landmarks.csv` |
 | Generate perception CSV and GLIL config | `glil_cloud_landmark_extractor --batch-csv frames.csv --output landmarks.csv --config-root run_config` |
 | Report perception CSV factor readiness | `glil_perception_factor_report --csv cloud_landmarks.csv --config-root run_config` |
@@ -79,8 +80,8 @@ docker build \
   VGICP, uniform sampling, and Fast-Caratheodory row selection, plus a
   summary tool that turns the benchmark CSV into a baseline-relative table.
 - It ships an opt-in perception landmark factor path, point-cloud-to-CSV
-  extractor, one-command CSV/config/report workflow, and report summarizer for
-  stable geometric cues.
+  extractor, one-command CSV/config/report workflow, report summarizer, and a
+  baseline vs perception run comparator for stable geometric cues.
 - It gives LiDAR-SLAM users a concrete place to file reproduction reports.
 
 If these reproduction configs save you time, starring the repo helps other

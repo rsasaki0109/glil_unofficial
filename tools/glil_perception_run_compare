@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Compare GLIL runs with and without perception factors side-by-side."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as _dt
+import re
+import sys
+from io import StringIO
+from pathlib import Path
+from typing import Any
+
+
+METRIC_RE = re.compile(
+    r"^\s*([A-Za-z][A-Za-z0-9_ /.-]{0,48})\s*(?:[:=]\s*|\s+)([-+0-9.eE]+|PASS|WARN|FAIL|OK|NA)\s*$"
+)
+
+APE_KEYS = ("rmse", "mean", "median", "std", "min", "max", "sse")
+
+PERCEPTION_METRIC_KEYS = (
+    "injectable",
+    "observations",
+    "load_errors",
+    "accepted_observations",
+    "accepted_rate",
+    "rejected_low_confidence",
+    "rejected_class",
+    "unique_landmarks",
+    "accepted_unique_landmarks",
+    "confidence_median",
+    "factor_sigma_median",
+    "matched_observations",
+    "matched_observation_rate",
+    "matched_accepted_observations",
+    "accepted_match_rate",
+    "csv_path",
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Compare baseline and perception-enabled GLIL runs into a single Markdown or CSV table.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--run",
+        action="append",
+        default=[],
+        required=True,
+        help="Run to include, LABEL=run_dir; repeatable (at least one)",
+    )
+    parser.add_argument(
+        "--baseline-label",
+        default=None,
+        help="Label whose RMSE is used as the baseline for delta columns (default: first --run)",
+    )
+    parser.add_argument("--ape-filename", default="evo_ape.txt", help="APE/trajectory metrics filename inside each run_dir")
+    parser.add_argument(
+        "--perception-report-filename",
+        default="perception_report.csv",
+        help="Perception report filename inside each run_dir (optional)",
+    )
+    parser.add_argument("--format", choices=("markdown", "csv"), default="markdown")
+    parser.add_argument("--output", help="Write result to this path instead of stdout")
+    parser.add_argument("--title", default="Perception On/Off Comparison")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit nonzero if any run is missing its APE file or has a FAIL row",
+    )
+    return parser.parse_args()
+
+
+def utc_now() -> str:
+    return (
+        _dt.datetime.now(_dt.timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def split_spec(spec: str) -> tuple[str, str]:
+    if "=" in spec:
+        label, path = spec.split("=", 1)
+        label = label.strip()
+        path = path.strip()
+        if label and path:
+            return label, path
+    path = spec.strip()
+    label = Path(path).name or "run"
+    return label, path
+
+
+def parse_ape(path: Path) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    if not path.exists() or not path.is_file():
+        return metrics
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return metrics
+    for line in text.splitlines():
+        match = METRIC_RE.match(line)
+        if not match:
+            continue
+        key = match.group(1).strip().lower()
+        if key not in APE_KEYS:
+            continue
+        try:
+            metrics[key] = float(match.group(2))
+        except ValueError:
+            continue
+    return metrics
+
+
+def parse_perception_report(path: Path) -> dict[str, str]:
+    metrics: dict[str, str] = {}
+    if not path.exists() or not path.is_file():
+        return metrics
+    try:
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            reader = csv.reader(stream)
+            for row in reader:
+                if len(row) < 3:
+                    continue
+                section = row[0].strip()
+                if section != "metric":
+                    continue
+                key = row[1].strip()
+                value = row[2].strip()
+                if key in PERCEPTION_METRIC_KEYS:
+                    metrics[key] = value
+    except (OSError, csv.Error):
+        return metrics
+    return metrics
+
+
+def collect_run(spec: str, *, ape_filename: str, perception_filename: str) -> dict[str, Any]:
+    label, path_text = split_spec(spec)
+    run_dir = Path(path_text)
+    entry: dict[str, Any] = {
+        "label": label,
+        "run_dir": path_text,
+        "run_dir_exists": run_dir.exists(),
+        "ape_path": str(run_dir / ape_filename),
+        "perception_path": str(run_dir / perception_filename),
+        "ape": {},
+        "perception": {},
+        "ape_exists": False,
+        "perception_exists": False,
+        "errors": [],
+    }
+    if not run_dir.exists() or not run_dir.is_dir():
+        entry["errors"].append("run_dir missing")
+        return entry
+
+    ape_path = run_dir / ape_filename
+    perception_path = run_dir / perception_filename
+
+    entry["ape"] = parse_ape(ape_path)
+    entry["perception"] = parse_perception_report(perception_path)
+    entry["ape_exists"] = ape_path.exists()
+    entry["perception_exists"] = perception_path.exists()
+
+    if not entry["ape"]:
+        entry["errors"].append("ape missing or empty")
+
+    return entry
+
+
+def derive_status(entry: dict[str, Any]) -> str:
+    if entry["errors"]:
+        return "FAIL"
+    if entry["perception_exists"]:
+        injectable = entry["perception"].get("injectable")
+        if injectable and injectable.lower() == "yes":
+            return "PASS"
+        return "WARN"
+    return "PASS"  # baseline without perception is still PASS
+
+
+def perception_status(entry: dict[str, Any]) -> str:
+    if not entry["perception_exists"]:
+        return "off"
+    injectable = entry["perception"].get("injectable", "").lower()
+    if injectable == "yes":
+        return "on"
+    return "loaded"
+
+
+def format_float(value: Any, digits: int = 3, suffix: str = "") -> str:
+    if value is None or value == "":
+        return "NA"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{number:.{digits}f}{suffix}"
+
+
+def percent_from_text(value: str | None) -> str:
+    if not value:
+        return "NA"
+    return value
+
+
+def render_markdown(runs: list[dict[str, Any]], *, baseline_label: str | None, args: argparse.Namespace) -> str:
+    baseline_rmse = None
+    if baseline_label:
+        for run in runs:
+            if run["label"] == baseline_label:
+                baseline_rmse = run["ape"].get("rmse")
+                break
+
+    lines: list[str] = [f"# {args.title}"]
+    lines.append("")
+    lines.append(f"generated at `{utc_now()}`; baseline label `{baseline_label or 'NA'}`")
+    lines.append("")
+    lines.append(
+        "| run | perception | status | RMSE (m) | ΔRMSE vs baseline | accepted obs | accepted match rate | rejected class | rejected low conf | unique landmarks |"
+    )
+    lines.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|")
+    for run in runs:
+        rmse = run["ape"].get("rmse")
+        delta = None
+        if rmse is not None and baseline_rmse not in (None, 0):
+            delta = rmse - baseline_rmse
+        p = run["perception"]
+        lines.append(
+            "| {label} | {perception} | {status} | {rmse} | {delta} | {acc} | {match} | {rej_class} | {rej_conf} | {uniq} |".format(
+                label=run["label"],
+                perception=perception_status(run),
+                status=run["status"],
+                rmse=format_float(rmse, digits=6),
+                delta=(format_float(delta, digits=6) if delta is not None else "NA"),
+                acc=p.get("accepted_observations", "NA"),
+                match=percent_from_text(p.get("accepted_match_rate")),
+                rej_class=p.get("rejected_class", "NA"),
+                rej_conf=p.get("rejected_low_confidence", "NA"),
+                uniq=p.get("accepted_unique_landmarks", p.get("unique_landmarks", "NA")),
+            )
+        )
+    lines.append("")
+    lines.append(
+        "`perception` is `on` when the run's perception report has `injectable=yes`, `loaded` "
+        "when the report exists but injection was disabled, and `off` when no perception report "
+        "is present in the run directory."
+    )
+    lines.append("")
+    lines.append(
+        "This table intentionally does not claim RMSE improvement; it records observation counts,"
+        " factor acceptance, timestamp match rates, and rejection reasons so that perception"
+        " factor experiments can be compared honestly against a baseline run."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def render_csv(runs: list[dict[str, Any]], *, baseline_label: str | None) -> str:
+    baseline_rmse = None
+    if baseline_label:
+        for run in runs:
+            if run["label"] == baseline_label:
+                baseline_rmse = run["ape"].get("rmse")
+                break
+
+    fieldnames = [
+        "run",
+        "run_dir",
+        "perception",
+        "status",
+        "rmse",
+        "rmse_delta",
+        "accepted_observations",
+        "accepted_match_rate",
+        "rejected_class",
+        "rejected_low_confidence",
+        "unique_landmarks",
+        "accepted_unique_landmarks",
+        "observations",
+        "matched_accepted_observations",
+        "ape_exists",
+        "perception_exists",
+        "errors",
+    ]
+
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    for run in runs:
+        rmse = run["ape"].get("rmse")
+        delta = None
+        if rmse is not None and baseline_rmse not in (None, 0):
+            delta = rmse - baseline_rmse
+        p = run["perception"]
+        writer.writerow(
+            {
+                "run": run["label"],
+                "run_dir": run["run_dir"],
+                "perception": perception_status(run),
+                "status": run["status"],
+                "rmse": rmse,
+                "rmse_delta": delta,
+                "accepted_observations": p.get("accepted_observations"),
+                "accepted_match_rate": p.get("accepted_match_rate"),
+                "rejected_class": p.get("rejected_class"),
+                "rejected_low_confidence": p.get("rejected_low_confidence"),
+                "unique_landmarks": p.get("unique_landmarks"),
+                "accepted_unique_landmarks": p.get("accepted_unique_landmarks"),
+                "observations": p.get("observations"),
+                "matched_accepted_observations": p.get("matched_accepted_observations"),
+                "ape_exists": run.get("ape_exists"),
+                "perception_exists": run.get("perception_exists"),
+                "errors": "; ".join(run["errors"]) or "",
+            }
+        )
+    return buffer.getvalue()
+
+
+def main() -> int:
+    args = parse_args()
+
+    runs: list[dict[str, Any]] = []
+    for spec in args.run:
+        runs.append(collect_run(spec, ape_filename=args.ape_filename, perception_filename=args.perception_report_filename))
+    for run in runs:
+        run["status"] = derive_status(run)
+
+    baseline_label = args.baseline_label or (runs[0]["label"] if runs else None)
+
+    if args.format == "markdown":
+        text = render_markdown(runs, baseline_label=baseline_label, args=args)
+    else:
+        text = render_csv(runs, baseline_label=baseline_label)
+
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+
+    if args.strict:
+        for run in runs:
+            if run["errors"] or run["status"] == "FAIL":
+                return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

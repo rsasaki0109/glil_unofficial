@@ -225,6 +225,41 @@ count meets `--min-accepted`, and `accepted_match_rate` meets
 `--min-accepted-match-rate` when timestamp matching metrics are present. Use
 `--format csv` to join perception readiness with registration or APE tables.
 
+## Perception Run Comparison
+
+`glil_perception_run_compare` takes one or more run directories and produces a
+single Markdown or CSV table that places a perception-enabled run alongside a
+baseline. It reads `evo_ape.txt` for trajectory metrics and the optional
+`perception_report.csv` for injectable status, accepted observations, match
+rate, and rejection reasons:
+
+```bash
+glil_perception_run_compare \
+  --run baseline=run_baseline \
+  --run perception=run_perception \
+  --baseline-label baseline \
+  --format markdown \
+  --output perception_on_off.md
+```
+
+Run with the bundled fixture the output looks like this:
+
+| run | perception | status | RMSE (m) | ΔRMSE vs baseline | accepted obs | accepted match rate | rejected class | rejected low conf | unique landmarks |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| baseline | off | PASS | 1.080450 | 0.000000 | NA | NA | NA | NA | NA |
+| perception | on | PASS | 1.018235 | -0.062215 | 4 | 100.000000% | 1 | 0 | 3 |
+
+The table is deliberately conservative. It does not claim perception factors
+improve RMSE; it records observation counts, accepted factors, timestamp match
+rates, and rejection reasons so that perception-enabled runs can be compared
+honestly against a baseline. The `perception` column is `on` when the run's
+report has `injectable=yes`, `loaded` when a report exists but injection was
+disabled, and `off` when no perception report is present in the run directory.
+
+Use `--strict` to fail a CI step when any run directory is missing its APE
+file. Use `--format csv` to pipe the rows into an external spreadsheet or
+additional processing.
+
 ## Global Mapping CSV Injector
 
 `libperception_csv_injector.so` is an optional extension module that loads the
@@ -323,6 +358,9 @@ Implemented now:
   class filtering, confidence, covariance, and timestamp match rates
 - `glil_perception_report_summary` for comparing readiness reports across runs
   and exporting reproduction-friendly markdown or CSV tables
+- `glil_perception_run_compare` for placing a perception-enabled run next to a
+  baseline run and rendering RMSE, accepted factors, match rate, and rejection
+  reasons in a single Markdown or CSV table
 - `libperception_csv_injector.so` for optional global-mapping CSV factor
   injection
 - `config/sample_perception_observations.csv` and

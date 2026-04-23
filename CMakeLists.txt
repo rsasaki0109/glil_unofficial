@@ -315,6 +315,16 @@ if(BUILD_TESTING)
         --output ${CMAKE_CURRENT_BINARY_DIR}/coreset_benchmark_summary_smoke.md
         --strict
     )
+    add_test(
+      NAME perception_run_compare
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tools/glil_perception_run_compare
+        --run baseline=${CMAKE_CURRENT_SOURCE_DIR}/config/sample_perception_run_compare/baseline
+        --run perception=${CMAKE_CURRENT_SOURCE_DIR}/config/sample_perception_run_compare/perception
+        --baseline-label baseline
+        --format markdown
+        --output ${CMAKE_CURRENT_BINARY_DIR}/perception_run_compare_smoke.md
+        --strict
+    )
   endif()
 endif()
 
@@ -338,6 +348,7 @@ if(BUILD_TOOLS)
     tools/glil_perception_workflow
     tools/glil_reproduction_bundle
     tools/glil_coreset_benchmark_summary
+    tools/glil_perception_run_compare
     DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
 endif()

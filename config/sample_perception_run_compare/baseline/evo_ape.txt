@@ -1,0 +1,12 @@
+# command: evo_ape tum reference.txt trajectory.txt --align --correct_scale
+# generated_at: 2026-04-24T08:00:00+09:00
+APE w.r.t. translation part (m)
+(with Sim(3) Umeyama alignment)
+
+       max	2.742156
+      mean	0.951234
+    median	0.883412
+       min	0.201453
+      rmse	1.080450
+       sse	2894.412890
+       std	0.502137
