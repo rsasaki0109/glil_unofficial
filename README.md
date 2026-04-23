@@ -31,6 +31,7 @@ CPU/CUDA Docker builds.
 | Pick the validated config | [Recommended Configs](#recommended-configs) |
 | Build the CI-tested Docker image | [Run A Docker Build](#run-a-docker-build) |
 | Read the generated docs | <https://rsasaki0109.github.io/glil_unofficial/> |
+| Try perception landmark factors | [Perception Factors](docs/perception_factors.md) |
 | Report your own run | [Reproduction report issue](https://github.com/rsasaki0109/glil_unofficial/issues/new?template=reproduction_report.md) |
 
 ## Run A Docker Build
@@ -62,6 +63,7 @@ docker build \
 - It keeps a small scoreboard for the validated configs instead of asking users
   to infer results from raw logs.
 - It includes CPU and CUDA Docker build checks so dependency drift is visible.
+- It ships an opt-in perception landmark factor path for stable semantic cues.
 - It gives LiDAR-SLAM users a concrete place to file reproduction reports.
 
 If these reproduction configs save you time, starring the repo helps other

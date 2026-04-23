@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <sstream>
 
 #include <gtsam/geometry/Rot3.h>
@@ -84,6 +85,8 @@ void test_csv_loader_and_builder() {
   glil::PerceptionFactorBuilderParams params;
   params.allowed_class_ids = {"pole", "sign"};
   params.min_confidence = 0.5;
+  params.robust_loss = "HUBER";
+  params.robust_loss_width = 1.5;
   glil::PerceptionFactorBuilder builder(params);
 
   gtsam::NonlinearFactorGraph graph;
@@ -96,6 +99,13 @@ void test_csv_loader_and_builder() {
   assert(summary.inserted_landmarks == 1);
   assert(summary.reused_landmarks == 1);
   assert(graph.size() == 2);
+  const auto perception_factor = std::dynamic_pointer_cast<glil::PerceptionLandmarkFactor>(graph.at(0));
+  assert(perception_factor);
+  const auto robust_noise = std::dynamic_pointer_cast<gtsam::noiseModel::Robust>(perception_factor->noiseModel());
+  assert(robust_noise);
+  const auto huber_loss = std::dynamic_pointer_cast<gtsam::noiseModel::mEstimator::Huber>(robust_noise->robust());
+  assert(huber_loss);
+  assert(std::abs(huber_loss->modelParameter() - 1.5) < 1e-12);
   assert(pending_values.exists(L(7)));
   assert(!pending_values.exists(L(8)));
   expect_near(pending_values.at<gtsam::Point3>(L(7)), gtsam::Point3(12.0, 0.0, 0.0), 1e-12);

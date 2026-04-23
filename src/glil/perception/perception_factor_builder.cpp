@@ -1,15 +1,57 @@
 // SPDX-License-Identifier: MIT
 #include <glil/perception/perception_factor_builder.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <utility>
 
 #include <gtsam/inference/Symbol.h>
+#include <gtsam/linear/NoiseModel.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
 #include <gtsam/nonlinear/Values.h>
 
 #include <glil/factors/perception_landmark_factor.hpp>
 
 namespace glil {
+namespace {
+
+std::string normalized_robust_loss(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+  return value;
+}
+
+gtsam::noiseModel::mEstimator::Base::shared_ptr make_perception_robust_loss(const PerceptionFactorBuilderParams& params) {
+  if (params.robust_loss_width <= 0.0) {
+    return nullptr;
+  }
+
+  const std::string robust_loss = normalized_robust_loss(params.robust_loss);
+  if (robust_loss.empty() || robust_loss == "NONE" || robust_loss == "OFF" || robust_loss == "L2") {
+    return nullptr;
+  }
+  if (robust_loss == "HUBER") {
+    return gtsam::noiseModel::mEstimator::Huber::Create(params.robust_loss_width);
+  }
+  if (robust_loss == "CAUCHY") {
+    return gtsam::noiseModel::mEstimator::Cauchy::Create(params.robust_loss_width);
+  }
+  if (robust_loss == "TUKEY") {
+    return gtsam::noiseModel::mEstimator::Tukey::Create(params.robust_loss_width);
+  }
+
+  return nullptr;
+}
+
+gtsam::SharedNoiseModel make_builder_noise_model(const PerceptionObservation& observation, const PerceptionFactorBuilderParams& params) {
+  auto noise = make_perception_noise_model(observation, params.min_sigma, params.min_noise_confidence);
+  const auto robust = make_perception_robust_loss(params);
+  if (!robust) {
+    return noise;
+  }
+  return gtsam::noiseModel::Robust::Create(robust, noise);
+}
+
+}  // namespace
 
 PerceptionFactorBuilder::PerceptionFactorBuilder(PerceptionFactorBuilderParams params) : params_(std::move(params)) {}
 
@@ -62,7 +104,7 @@ PerceptionFactorBuilderResult PerceptionFactorBuilder::add_observation(
     result.reused_landmarks++;
   }
 
-  const auto noise = make_perception_noise_model(observation, params_.min_sigma, params_.min_noise_confidence);
+  const auto noise = make_builder_noise_model(observation, params_);
   graph.emplace_shared<PerceptionLandmarkFactor>(pose_key, l_key, observation, noise);
   result.accepted++;
   return result;

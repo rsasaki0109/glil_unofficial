@@ -79,6 +79,20 @@ Default class filters reject common dynamic objects such as `car`, `person`, and
 `sign`, `reflector`, or `fiducial`, and keep `initialize_missing_landmarks=true`
 when the CSV carries stable landmark IDs.
 
+For a smoke test, point `csv_path` at `sample_perception_observations.csv`, set
+`allowed_class_ids` to `pole`, `sign`, and `reflector`, and add
+`libperception_csv_injector.so` to `config_ros.json`. The sample includes a
+`car` row so the class rejection path is exercised.
+
+## Robust Loss
+
+Perception frontends usually produce occasional outliers. Set `robust_loss` to
+`HUBER`, `CAUCHY`, or `TUKEY` to wrap each perception factor noise model in a
+GTSAM robust noise model. `robust_loss_width` is interpreted in whitened units,
+so a Huber width of `1.5` means the quadratic-to-linear transition happens at
+roughly 1.5 sigmas after covariance and confidence scaling. `NONE`, `OFF`, `L2`,
+or a non-positive width disables robust wrapping.
+
 ## C++ Example
 
 ```cpp
@@ -99,6 +113,8 @@ obs.confidence = 0.8;
 glil::PerceptionFactorBuilderParams params;
 params.allowed_class_ids = {"pole", "sign", "fiducial"};
 params.min_confidence = 0.5;
+params.robust_loss = "HUBER";
+params.robust_loss_width = 1.5;
 
 glil::PerceptionFactorBuilder builder(params);
 builder.add_observation(graph, values, X(keyframe_id), current_pose, obs, &current_estimate);
@@ -124,16 +140,16 @@ Implemented now:
 - `make_perception_noise_model()`
 - `PerceptionLandmarkFactor`
 - CSV/stream observation loading
-- `PerceptionFactorBuilder` for class filtering, landmark initialization, and
-  factor insertion
+- `PerceptionFactorBuilder` for class filtering, robust loss wrapping, landmark
+  initialization, and factor insertion
 - `libperception_csv_injector.so` for optional global-mapping CSV factor
   injection
+- `config/sample_perception_observations.csv` for CSV injector smoke tests
 - a CTest smoke test that checks residuals, Jacobians, confidence-weighted noise,
-  CSV parsing, graph insertion, and landmark optimization
+  CSV parsing, robust graph insertion, and landmark optimization
 
 Not implemented yet:
 
 - ROS/ROS 2 perception message adapters
 - detector-stream buffering beyond offline CSV timestamp association
 - long-lived landmark lifecycle policy, e.g. pruning, merging, and relabeling
-- robust-kernel configuration for outlier-heavy detectors

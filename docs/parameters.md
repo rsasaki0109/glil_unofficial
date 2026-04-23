@@ -60,6 +60,8 @@
 - **csv_path** : Path to offline perception observations. Relative paths are resolved from `global.config_path`.
 - **time_tolerance** (default 0.05 s) : Maximum timestamp difference between a CSV observation and a submap origin frame for factor injection.
 - **allowed_class_ids / rejected_class_ids** : Semantic class filters before factors are added. The default rejected list filters common dynamic objects.
+- **robust_loss** (default "NONE") : Optional perception factor robust loss. Supported values are `NONE`, `HUBER`, `CAUCHY`, and `TUKEY`.
+- **robust_loss_width** (default 1.0) : Robust loss width in whitened residual units. Non-positive values disable robust wrapping.
 - **initialize_missing_landmarks** (default true) : Inserts a new world-frame landmark value from the current pose and measurement when the stable landmark ID is first observed.
 
 ### Common parameters for sub and global mapping

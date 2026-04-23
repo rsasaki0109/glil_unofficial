@@ -76,6 +76,8 @@ public:
     builder_params.min_confidence = config.param<double>(kConfigModule, "min_confidence", 0.0);
     builder_params.min_sigma = config.param<double>(kConfigModule, "min_sigma", 1e-3);
     builder_params.min_noise_confidence = config.param<double>(kConfigModule, "min_noise_confidence", 1e-3);
+    builder_params.robust_loss = config.param<std::string>(kConfigModule, "robust_loss", "NONE");
+    builder_params.robust_loss_width = config.param<double>(kConfigModule, "robust_loss_width", 1.0);
     builder_params.initialize_missing_landmarks = config.param<bool>(kConfigModule, "initialize_missing_landmarks", true);
 
     const std::string landmark_symbol = config.param<std::string>(kConfigModule, "landmark_symbol", "l");

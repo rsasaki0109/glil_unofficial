@@ -23,6 +23,8 @@ struct PerceptionFactorBuilderParams {
   double min_confidence = 0.0;
   double min_sigma = 1e-3;
   double min_noise_confidence = 1e-3;
+  std::string robust_loss = "NONE";
+  double robust_loss_width = 1.0;
   char landmark_symbol = 'l';
   bool initialize_missing_landmarks = true;
   std::unordered_set<std::string> allowed_class_ids;

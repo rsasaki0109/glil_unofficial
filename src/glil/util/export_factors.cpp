@@ -29,6 +29,7 @@ BOOST_CLASS_EXPORT_GUID(gtsam::noiseModel::mEstimator::Base, "gtsam::noiseModel:
 BOOST_CLASS_EXPORT_GUID(gtsam::noiseModel::mEstimator::Null, "gtsam::noiseModel::mEstimator::Null");
 BOOST_CLASS_EXPORT_GUID(gtsam::noiseModel::mEstimator::Fair, "gtsam::noiseModel::mEstimator::Fair");
 BOOST_CLASS_EXPORT_GUID(gtsam::noiseModel::mEstimator::Huber, "gtsam::noiseModel::mEstimator::Huber");
+BOOST_CLASS_EXPORT_GUID(gtsam::noiseModel::mEstimator::Cauchy, "gtsam::noiseModel::mEstimator::Cauchy");
 BOOST_CLASS_EXPORT_GUID(gtsam::noiseModel::mEstimator::Tukey, "gtsam::noiseModel::mEstimator::Tukey");
 
 GTSAM_VALUE_EXPORT(gtsam::Rot3);
