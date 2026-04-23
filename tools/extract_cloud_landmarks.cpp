@@ -18,6 +18,8 @@
 
 #include <glil/perception/cloud_landmark_extractor.hpp>
 
+#include "perception_config_tool.hpp"
+
 namespace {
 
 struct Options {
@@ -35,6 +37,9 @@ struct Options {
   bool skip_invalid_rows = false;
   bool full_covariance = false;
   bool quiet = false;
+  bool write_config = false;
+  bool config_allowed_class_ids_explicit = false;
+  glil::tools::PerceptionConfigOptions config;
 };
 
 struct BatchFrame {
@@ -78,6 +83,25 @@ void print_help(const char* argv0) {
             << "  --confidence-points N  Points needed for confidence 1.0 (default: 20)\n"
             << "  --class-id NAME        CSV class_id label (default: cloud_landmark)\n"
             << "  --full-covariance      Write 3x3 covariance columns instead of diagonal CSV\n"
+            << "  --config-root DIR      Also write/update a runnable GLIL config root for --output\n"
+            << "  --config-json NAME     Root config filename (default: config.json)\n"
+            << "  --config-ros NAME      ROS config filename (default: config_ros.json)\n"
+            << "  --config-perception NAME  Perception config filename (default: config_perception.json)\n"
+            << "  --module-name NAME     Extension module name (default: libperception_csv_injector.so)\n"
+            << "  --time-tolerance SEC   CSV/submap timestamp tolerance (default: 0.05)\n"
+            << "  --min-confidence V     Minimum injector observation confidence (default: 0.5)\n"
+            << "  --min-sigma V          Minimum covariance sigma floor (default: 0.001)\n"
+            << "  --min-noise-confidence V  Confidence floor for noise scaling (default: 0.001)\n"
+            << "  --robust-loss NAME     NONE|HUBER|CAUCHY|TUKEY (default: HUBER)\n"
+            << "  --robust-loss-width V  Robust loss width (default: 1.5)\n"
+            << "  --allowed-class-ids CSV  Injector allow list (default: --class-id)\n"
+            << "  --rejected-class-ids CSV Injector reject list for dynamic classes\n"
+            << "  --landmark-symbol C    GTSAM symbol prefix for landmarks (default: l)\n"
+            << "  --fail-on-load-error   Disable injector if CSV load has errors\n"
+            << "  --no-consume-once      Allow an observation to match multiple submaps\n"
+            << "  --no-skip-header       Treat the first output CSV row as data in injector\n"
+            << "  --no-update-ros        Do not update config_ros.json extension_modules\n"
+            << "  --no-update-config-json Do not update config.json links\n"
             << "  --quiet                Do not print extraction summary to stderr\n";
 }
 
@@ -233,6 +257,7 @@ Options parse_options(int argc, char** argv) {
       options.pose_columns = split_comma_list(next("--pose-columns"));
     } else if (arg == "--skip-invalid-rows") {
       options.skip_invalid_rows = true;
+      options.config.skip_invalid_rows = true;
     } else if (arg == "--voxel") {
       options.extractor.voxel_resolution = parse_double(next("--voxel"), "--voxel");
     } else if (arg == "--min-points") {
@@ -249,8 +274,51 @@ Options parse_options(int argc, char** argv) {
       options.extractor.confidence_point_count = parse_double(next("--confidence-points"), "--confidence-points");
     } else if (arg == "--class-id") {
       options.extractor.class_id = next("--class-id");
+      if (!options.config_allowed_class_ids_explicit) {
+        options.config.allowed_class_ids = {options.extractor.class_id};
+      }
     } else if (arg == "--full-covariance") {
       options.full_covariance = true;
+    } else if (arg == "--config-root") {
+      options.write_config = true;
+      options.config.config_root = next("--config-root");
+    } else if (arg == "--config-json") {
+      options.config.config_json = next("--config-json");
+    } else if (arg == "--config-ros") {
+      options.config.config_ros = next("--config-ros");
+    } else if (arg == "--config-perception") {
+      options.config.config_perception = next("--config-perception");
+    } else if (arg == "--module-name") {
+      options.config.module_name = next("--module-name");
+    } else if (arg == "--time-tolerance") {
+      options.config.time_tolerance = parse_double(next("--time-tolerance"), "--time-tolerance");
+    } else if (arg == "--min-confidence") {
+      options.config.min_confidence = parse_double(next("--min-confidence"), "--min-confidence");
+    } else if (arg == "--min-sigma") {
+      options.config.min_sigma = parse_double(next("--min-sigma"), "--min-sigma");
+    } else if (arg == "--min-noise-confidence") {
+      options.config.min_noise_confidence = parse_double(next("--min-noise-confidence"), "--min-noise-confidence");
+    } else if (arg == "--robust-loss") {
+      options.config.robust_loss = next("--robust-loss");
+    } else if (arg == "--robust-loss-width") {
+      options.config.robust_loss_width = parse_double(next("--robust-loss-width"), "--robust-loss-width");
+    } else if (arg == "--allowed-class-ids") {
+      options.config.allowed_class_ids = split_comma_list(next("--allowed-class-ids"));
+      options.config_allowed_class_ids_explicit = true;
+    } else if (arg == "--rejected-class-ids") {
+      options.config.rejected_class_ids = split_comma_list(next("--rejected-class-ids"));
+    } else if (arg == "--landmark-symbol") {
+      options.config.landmark_symbol = next("--landmark-symbol");
+    } else if (arg == "--fail-on-load-error") {
+      options.config.fail_on_load_error = true;
+    } else if (arg == "--no-consume-once") {
+      options.config.consume_once = false;
+    } else if (arg == "--no-skip-header") {
+      options.config.skip_header = false;
+    } else if (arg == "--no-update-ros") {
+      options.config.update_ros = false;
+    } else if (arg == "--no-update-config-json") {
+      options.config.update_config_json = false;
     } else if (arg == "--quiet") {
       options.quiet = true;
     } else {
@@ -266,6 +334,13 @@ Options parse_options(int argc, char** argv) {
   }
   if (options.pose_columns.size() != 6) {
     throw std::runtime_error("--pose-columns must contain exactly six comma-separated names");
+  }
+  if (options.write_config) {
+    if (options.output_path.empty()) {
+      throw std::runtime_error("--config-root requires --output so config_perception.json can reference the generated CSV");
+    }
+    options.config.csv_path = options.output_path;
+    glil::tools::validate_perception_config_options(options.config);
   }
   options.extractor.voxel_resolution = std::max(options.extractor.voxel_resolution, 1e-6);
   options.extractor.min_points_per_landmark = std::max(options.extractor.min_points_per_landmark, 1);
@@ -731,6 +806,25 @@ int main(int argc, char** argv) {
       run_batch(options, *output);
     } else {
       run_single(options, *output);
+    }
+
+    if (file.is_open()) {
+      file.close();
+    }
+
+    if (options.write_config) {
+      glil::tools::write_perception_config_root(options.config);
+      if (!options.quiet) {
+        const std::string perception_path = glil::tools::join_config_path(options.config.config_root, options.config.config_perception);
+        std::cerr << "wrote " << perception_path;
+        if (options.config.update_config_json) {
+          std::cerr << " updated " << glil::tools::join_config_path(options.config.config_root, options.config.config_json);
+        }
+        if (options.config.update_ros) {
+          std::cerr << " updated " << glil::tools::join_config_path(options.config.config_root, options.config.config_ros);
+        }
+        std::cerr << '\n';
+      }
     }
     return 0;
   } catch (const std::exception& e) {

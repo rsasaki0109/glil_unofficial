@@ -105,12 +105,27 @@ glil_cloud_landmark_extractor \
   --output cloud_landmarks.csv
 ```
 
+To also create a runnable config root in the same pass, add `--config-root`:
+
+```bash
+glil_cloud_landmark_extractor \
+  --batch-csv frames.csv \
+  --base-dir ./scans \
+  --format kitti-bin \
+  --voxel 1.0 \
+  --min-points 8 \
+  --max-landmarks 256 \
+  --output cloud_landmarks.csv \
+  --config-root run_config \
+  --time-tolerance 0.10
+```
+
 `--path-column`, `--stamp-column`, and `--pose-columns` adapt other trajectory
 CSV schemas without rewriting the file. `--skip-invalid-rows` keeps long dataset
 conversion jobs running when a row or cloud file is bad.
 
-To make the generated CSV runnable by the GLIL global mapping injector, generate
-a small config root:
+To make an existing perception CSV runnable by the GLIL global mapping injector,
+generate a small config root:
 
 ```bash
 glil_perception_config_generator \
@@ -120,10 +135,10 @@ glil_perception_config_generator \
   --allowed-class-ids cloud_landmark
 ```
 
-The generator writes or updates `config_perception.json`, adds
-`libperception_csv_injector.so` to `config_ros.json`, and links both files from
-`config.json`. Existing JSON files are parsed with comment support, but rewritten
-as plain formatted JSON.
+Both the extractor `--config-root` path and the standalone generator write or
+update `config_perception.json`, add `libperception_csv_injector.so` to
+`config_ros.json`, and link both files from `config.json`. Existing JSON files
+are parsed with comment support, but rewritten as plain formatted JSON.
 
 ## Global Mapping CSV Injector
 
@@ -215,8 +230,8 @@ Implemented now:
   initialization, and factor insertion
 - `CloudLandmarkExtractor` and `glil_cloud_landmark_extractor` for converting
   real point clouds into perception-observation CSVs
-- `glil_perception_config_generator` for wiring a perception CSV into a runnable
-  config root
+- `glil_perception_config_generator` and extractor `--config-root` wiring for
+  turning a perception CSV into a runnable config root
 - `libperception_csv_injector.so` for optional global-mapping CSV factor
   injection
 - `config/sample_perception_observations.csv` for CSV injector smoke tests
