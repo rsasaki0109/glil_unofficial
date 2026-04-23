@@ -69,7 +69,7 @@ Gaussian voxel map, linearizes a `VGICP_CORESET` factor, and checks that these
 stats are populated. This gives CI a direct smoke test for the ICRA2025 exact
 sampling path.
 
-## Synthetic Benchmark
+## Benchmark Command
 
 Build the benchmark command and run it on a deterministic synthetic grid:
 
@@ -85,10 +85,36 @@ The command compares three paths on the same fixed-target VGICP problem:
 - `exact_caratheodory`: Fast-Caratheodory row selection through
   `IntegratedVGICPCoresetFactor`.
 
+For recorded or exported point clouds, provide both target and source inputs:
+
+```bash
+./build/glil_coreset_benchmark \
+  --target-cloud target_cloud_dir_or_file \
+  --source-cloud source_cloud_dir_or_file \
+  --voxel 0.5 \
+  --target 64 \
+  --clusters 64 \
+  --repeat 4 \
+  --csv
+```
+
+Supported real-cloud inputs are:
+
+- GLIL/gtsam_points directories containing `points.bin` or `points_compact.bin`
+- ASCII PCD files with `DATA ascii`
+- whitespace, comma, or semicolon separated XYZ text files
+- KITTI-style float32 XYZI `.bin` files
+- compact float32 XYZ `.bin` files with `--target-format compact-bin` or
+  `--source-format compact-bin`
+
+Use `--initial-xyzrpy tx ty tz roll pitch yaw` when the source cloud needs a
+non-identity initial pose relative to the target. Inputs without covariance
+attributes receive an isotropic covariance from `--fallback-covariance`.
+
 The default output reports first-call linearization time, repeated snapshot reuse
 time, relative augmented-Hessian error against full VGICP, valid correspondences,
 selected residual rows, selected source points, and coreset extraction count. Use
-`--csv` when collecting results from multiple target sizes.
+`--csv` when collecting results from multiple target sizes or datasets.
 
 A healthy smoke run should show `full_vgicp` as the zero-error reference,
 `uniform_sample` with non-zero relative augmented-Hessian error, and
@@ -99,8 +125,6 @@ when immutable snapshot reuse is enabled.
 
 The remaining engineering targets are:
 
-- a dataset-backed benchmark command that compares full VGICP, uniform sampling,
-  and coreset sampling on recorded submap pairs
 - a compact local occupancy bit-chunk grid fallback for environments where the
   `gtsam_points` helper is unavailable
 - a stats-driven benchmark report for `VGICP_CORESET` parameters and debug counters
