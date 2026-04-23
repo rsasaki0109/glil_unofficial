@@ -121,12 +121,44 @@ A healthy smoke run should show `full_vgicp` as the zero-error reference,
 `exact_caratheodory` close to machine precision with a single coreset extraction
 when immutable snapshot reuse is enabled.
 
+## Benchmark Summary Tool
+
+`glil_coreset_benchmark_summary` reads one or more `--csv` outputs and renders a
+baseline-relative comparison table. Pass `LABEL=path` when summarizing multiple
+runs so each row is attributable in the resulting table:
+
+```bash
+glil_coreset_benchmark_summary \
+  --csv sample=config/sample_coreset_benchmark.csv \
+  --format markdown \
+  --output coreset_benchmark_summary.md
+```
+
+Rendered against the bundled `config/sample_coreset_benchmark.csv` fixture the
+summary looks like this:
+
+| run | mode | selected rows | selected points | row ratio | point ratio | first us | reuse us | reuse speedup vs baseline | rel_aug_error |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| sample | `full_vgicp` | 2,048 | 2,048 | 1.0000 | 1.0000 | 14,200.0 | 14,150.0 | 1.00 | 0.000e+00 |
+| sample | `uniform_sample` | 64 | 64 | 0.0312 | 0.0312 | 2,100.0 | 2,080.0 | 6.80 | 1.280e-01 |
+| sample | `exact_caratheodory` | 64 | 52 | 0.0312 | 0.0254 | 3,400.0 | 210.0 | 67.38 | 4.800e-12 |
+
+The `rel_aug_error` column is the relative augmented-Hessian error against the
+baseline mode (`full_vgicp` by default). `reuse speedup vs baseline` divides the
+baseline reuse time by each mode's reuse time, so values greater than `1.0` are
+faster than the baseline. `row ratio` and `point ratio` show how aggressively
+each mode reduced the residual and source set.
+
+Use `--format csv` when a script needs to diff summary values across commits or
+dataset configurations. Use `--strict` to fail a CI step when the baseline row
+is missing or the exact mode exceeds `--exact-error-threshold` (default
+`1e-3`).
+
 ## Next Work
 
 The remaining engineering targets are:
 
 - a compact local occupancy bit-chunk grid fallback for environments where the
   `gtsam_points` helper is unavailable
-- a stats-driven benchmark report for `VGICP_CORESET` parameters and debug counters
 - documentation of recommended settings for desktop CPU, Mini PC, and low-power
   embedded CPU runs

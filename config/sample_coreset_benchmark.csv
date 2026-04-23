@@ -1,0 +1,4 @@
+mode,target_points,source_points,first_us,reuse_mean_us,constant_error,rel_aug_error,inliers,selected_rows,selected_points,weight_sum,extract_count,update_count
+full_vgicp,2048,2048,14200.0,14150.0,0.000000,0.000000e+00,2048,2048,2048,2048.000,0,1
+uniform_sample,2048,2048,2100.0,2080.0,0.000000,1.280000e-01,2048,64,64,2048.000,1,1
+exact_caratheodory,2048,2048,3400.0,210.0,0.000000,4.800000e-12,2048,64,52,2048.000,1,1

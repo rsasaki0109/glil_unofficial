@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Summarize glil_coreset_benchmark CSV output into a shareable table."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as _dt
+import math
+import sys
+from pathlib import Path
+from typing import Any
+
+
+REQUIRED_COLUMNS = ("mode",)
+NUMERIC_COLUMNS = (
+    "target_points",
+    "source_points",
+    "first_us",
+    "reuse_mean_us",
+    "constant_error",
+    "rel_aug_error",
+    "inliers",
+    "selected_rows",
+    "selected_points",
+    "weight_sum",
+    "extract_count",
+    "update_count",
+)
+
+DEFAULT_EXACT_THRESHOLD = 1e-3
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Summarize coreset benchmark CSV output from glil_coreset_benchmark.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--csv",
+        action="append",
+        default=[],
+        required=True,
+        help="Benchmark CSV, optionally LABEL=PATH; repeatable",
+    )
+    parser.add_argument("--format", choices=("markdown", "csv"), default="markdown")
+    parser.add_argument("--output", help="Write summary to this path instead of stdout")
+    parser.add_argument("--title", default="Coreset Benchmark Summary")
+    parser.add_argument(
+        "--baseline",
+        default="full_vgicp",
+        help="Mode name used as the baseline for speedup and row-reduction ratios",
+    )
+    parser.add_argument(
+        "--exact-mode",
+        default="exact_caratheodory",
+        help="Mode name expected to recover the baseline linearization (PASS gate)",
+    )
+    parser.add_argument(
+        "--exact-error-threshold",
+        type=float,
+        default=DEFAULT_EXACT_THRESHOLD,
+        help="Maximum rel_aug_error allowed for exact mode before downgrading to WARN",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit nonzero if any CSV is missing, malformed, or lacks the baseline row",
+    )
+    return parser.parse_args()
+
+
+def utc_now() -> str:
+    return (
+        _dt.datetime.now(_dt.timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def split_spec(spec: str) -> tuple[str, str]:
+    if "=" in spec:
+        label, path = spec.split("=", 1)
+        label = label.strip()
+        path = path.strip()
+        if label and path:
+            return label, path
+    path = spec.strip()
+    label = Path(path).stem or "run"
+    return label, path
+
+
+def to_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def aggregate_rows(rows: list[dict[str, str]]) -> dict[str, dict[str, Any]]:
+    """Group rows by mode and average numeric columns across repeats."""
+
+    grouped: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        mode = (row.get("mode") or "").strip()
+        if not mode:
+            continue
+        grouped.setdefault(mode, []).append(row)
+
+    aggregated: dict[str, dict[str, Any]] = {}
+    for mode, mode_rows in grouped.items():
+        entry: dict[str, Any] = {"mode": mode, "count": len(mode_rows)}
+        for column in NUMERIC_COLUMNS:
+            values = [v for v in (to_float(r.get(column)) for r in mode_rows) if v is not None]
+            entry[column] = sum(values) / len(values) if values else None
+        aggregated[mode] = entry
+    return aggregated
+
+
+def read_csv(spec: str) -> dict[str, Any]:
+    label, path_text = split_spec(spec)
+    path = Path(path_text)
+    entry: dict[str, Any] = {
+        "label": label,
+        "path": str(path),
+        "exists": path.exists(),
+        "columns": [],
+        "row_count": 0,
+        "modes": {},
+        "errors": [],
+    }
+    if not path.exists():
+        entry["errors"].append("missing")
+        return entry
+    try:
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            reader = csv.DictReader(stream)
+            entry["columns"] = reader.fieldnames or []
+            missing = [c for c in REQUIRED_COLUMNS if c not in entry["columns"]]
+            if missing:
+                entry["errors"].append(f"missing columns: {','.join(missing)}")
+                return entry
+            rows = list(reader)
+            entry["row_count"] = len(rows)
+            entry["modes"] = aggregate_rows(rows)
+    except (OSError, csv.Error) as exc:
+        entry["errors"].append(f"read error: {exc}")
+    return entry
+
+
+def compute_ratios(run: dict[str, Any], baseline: str) -> None:
+    modes = run["modes"]
+    base = modes.get(baseline)
+    run["baseline_present"] = base is not None
+    if base is None:
+        return
+
+    base_reuse = base.get("reuse_mean_us") or base.get("first_us")
+    base_rows = base.get("selected_rows")
+    base_points = base.get("selected_points")
+
+    for mode, entry in modes.items():
+        reuse = entry.get("reuse_mean_us") or entry.get("first_us")
+        if base_reuse and reuse and reuse > 0:
+            entry["reuse_speedup"] = base_reuse / reuse
+        else:
+            entry["reuse_speedup"] = None
+
+        if base_rows and entry.get("selected_rows"):
+            entry["row_ratio"] = entry["selected_rows"] / base_rows
+        else:
+            entry["row_ratio"] = None
+
+        if base_points and entry.get("selected_points"):
+            entry["point_ratio"] = entry["selected_points"] / base_points
+        else:
+            entry["point_ratio"] = None
+
+
+def derive_status(
+    run: dict[str, Any],
+    *,
+    baseline: str,
+    exact_mode: str,
+    exact_threshold: float,
+) -> str:
+    if run["errors"]:
+        return "FAIL"
+    if not run["baseline_present"]:
+        return "FAIL"
+    modes = run["modes"]
+    exact = modes.get(exact_mode)
+    if exact is None:
+        return "WARN"
+    rel_error = exact.get("rel_aug_error")
+    if rel_error is None:
+        return "WARN"
+    if rel_error > exact_threshold:
+        return "WARN"
+    return "PASS"
+
+
+def format_float(value: Any, digits: int = 2, scientific: bool = False) -> str:
+    if value is None:
+        return "NA"
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return "NA"
+    if scientific:
+        return f"{value:.{digits}e}"
+    return f"{value:,.{digits}f}"
+
+
+def format_int(value: Any) -> str:
+    if value is None:
+        return "NA"
+    try:
+        return f"{int(round(float(value))):,}"
+    except (TypeError, ValueError):
+        return "NA"
+
+
+def render_markdown(runs: list[dict[str, Any]], args: argparse.Namespace) -> str:
+    lines: list[str] = [f"# {args.title}"]
+    lines.append("")
+    lines.append(f"generated at `{utc_now()}` | baseline `{args.baseline}` | exact mode `{args.exact_mode}`")
+    lines.append("")
+    lines.append("## Run Status")
+    lines.append("")
+    lines.append("| label | status | path | rows | modes | notes |")
+    lines.append("|---|---|---|---:|---|---|")
+    for run in runs:
+        notes = "; ".join(run["errors"]) or "-"
+        modes_label = ", ".join(sorted(run["modes"].keys())) or "-"
+        lines.append(
+            f"| {run['label']} | {run['status']} | `{run['path']}` | {run['row_count']} | {modes_label} | {notes} |"
+        )
+    lines.append("")
+
+    lines.append("## Per-Mode Summary")
+    lines.append("")
+    lines.append(
+        "| run | mode | selected rows | selected points | row ratio | point ratio | first us | reuse us | reuse speedup vs baseline | rel_aug_error | extracts | updates |"
+    )
+    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for run in runs:
+        for mode in sorted(run["modes"].keys()):
+            entry = run["modes"][mode]
+            lines.append(
+                "| {run} | {mode} | {rows} | {points} | {row_ratio} | {point_ratio} | {first} | {reuse} | {speedup} | {err} | {extracts} | {updates} |".format(
+                    run=run["label"],
+                    mode=mode,
+                    rows=format_int(entry.get("selected_rows")),
+                    points=format_int(entry.get("selected_points")),
+                    row_ratio=format_float(entry.get("row_ratio"), digits=4),
+                    point_ratio=format_float(entry.get("point_ratio"), digits=4),
+                    first=format_float(entry.get("first_us"), digits=1),
+                    reuse=format_float(entry.get("reuse_mean_us"), digits=1),
+                    speedup=format_float(entry.get("reuse_speedup"), digits=2),
+                    err=format_float(entry.get("rel_aug_error"), digits=3, scientific=True),
+                    extracts=format_int(entry.get("extract_count")),
+                    updates=format_int(entry.get("update_count")),
+                )
+            )
+    lines.append("")
+    lines.append(
+        "`rel_aug_error` is the relative augmented-Hessian error against `"
+        f"{args.baseline}`. `reuse speedup vs baseline` divides the baseline reuse time by the mode reuse time."
+    )
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def render_csv(runs: list[dict[str, Any]], args: argparse.Namespace) -> str:
+    fieldnames = [
+        "run",
+        "path",
+        "status",
+        "mode",
+        "selected_rows",
+        "selected_points",
+        "row_ratio",
+        "point_ratio",
+        "first_us",
+        "reuse_mean_us",
+        "reuse_speedup",
+        "rel_aug_error",
+        "extract_count",
+        "update_count",
+        "inliers",
+    ]
+    from io import StringIO
+
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    for run in runs:
+        if not run["modes"]:
+            writer.writerow(
+                {
+                    "run": run["label"],
+                    "path": run["path"],
+                    "status": run["status"],
+                    "mode": "",
+                }
+            )
+            continue
+        for mode in sorted(run["modes"].keys()):
+            entry = run["modes"][mode]
+            writer.writerow(
+                {
+                    "run": run["label"],
+                    "path": run["path"],
+                    "status": run["status"],
+                    "mode": mode,
+                    "selected_rows": entry.get("selected_rows"),
+                    "selected_points": entry.get("selected_points"),
+                    "row_ratio": entry.get("row_ratio"),
+                    "point_ratio": entry.get("point_ratio"),
+                    "first_us": entry.get("first_us"),
+                    "reuse_mean_us": entry.get("reuse_mean_us"),
+                    "reuse_speedup": entry.get("reuse_speedup"),
+                    "rel_aug_error": entry.get("rel_aug_error"),
+                    "extract_count": entry.get("extract_count"),
+                    "update_count": entry.get("update_count"),
+                    "inliers": entry.get("inliers"),
+                }
+            )
+    return buffer.getvalue()
+
+
+def main() -> int:
+    args = parse_args()
+    runs: list[dict[str, Any]] = []
+    for spec in args.csv:
+        run = read_csv(spec)
+        compute_ratios(run, args.baseline)
+        run["status"] = derive_status(
+            run,
+            baseline=args.baseline,
+            exact_mode=args.exact_mode,
+            exact_threshold=args.exact_error_threshold,
+        )
+        runs.append(run)
+
+    if args.format == "markdown":
+        text = render_markdown(runs, args)
+    else:
+        text = render_csv(runs, args)
+
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+
+    if args.strict:
+        for run in runs:
+            if run["errors"] or run["status"] == "FAIL":
+                return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

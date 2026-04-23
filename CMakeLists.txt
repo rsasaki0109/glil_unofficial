@@ -307,6 +307,14 @@ if(BUILD_TESTING)
         --output ${CMAKE_CURRENT_BINARY_DIR}/reproduction_bundle_smoke.md
         --strict
     )
+    add_test(
+      NAME coreset_benchmark_summary
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tools/glil_coreset_benchmark_summary
+        --csv sample=${CMAKE_CURRENT_SOURCE_DIR}/config/sample_coreset_benchmark.csv
+        --format markdown
+        --output ${CMAKE_CURRENT_BINARY_DIR}/coreset_benchmark_summary_smoke.md
+        --strict
+    )
   endif()
 endif()
 
@@ -329,6 +337,7 @@ if(BUILD_TOOLS)
   install(PROGRAMS
     tools/glil_perception_workflow
     tools/glil_reproduction_bundle
+    tools/glil_coreset_benchmark_summary
     DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
 endif()

@@ -34,6 +34,7 @@ CPU/CUDA Docker builds.
 | Read the generated docs | <https://rsasaki0109.github.io/glil_unofficial/> |
 | Inspect exact sampling support | [ICRA2025 Exact Sampling Notes](docs/exact_sampling.md) |
 | Run the coreset benchmark | `glil_coreset_benchmark --target-cloud target --source-cloud source --csv` |
+| Summarize coreset benchmark CSVs | `glil_coreset_benchmark_summary --csv run=coreset_benchmark.csv --format markdown` |
 | Run perception CSV/config/report workflow | `glil_perception_workflow --batch-csv frames.csv --run-dir perception_run --cloud-format kitti-bin` |
 | Summarize perception reports | `glil_perception_report_summary --report run=perception_report.csv --format markdown` |
 | Generate perception CSV from point clouds | `glil_cloud_landmark_extractor --batch-csv frames.csv --output landmarks.csv` |
@@ -75,7 +76,8 @@ docker build \
 - It exposes `VGICP_CORESET` exact-sampling diagnostics for CPU registration
   factor experiments.
 - It includes synthetic and real-cloud coreset benchmarks for comparing full
-  VGICP, uniform sampling, and Fast-Caratheodory row selection.
+  VGICP, uniform sampling, and Fast-Caratheodory row selection, plus a
+  summary tool that turns the benchmark CSV into a baseline-relative table.
 - It ships an opt-in perception landmark factor path, point-cloud-to-CSV
   extractor, one-command CSV/config/report workflow, and report summarizer for
   stable geometric cues.
