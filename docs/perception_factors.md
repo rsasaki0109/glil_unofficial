@@ -84,6 +84,31 @@ when the output should pass a stricter `allowed_class_ids` filter.
 Use `--full-covariance` to write all nine covariance terms. Without it, the tool
 writes the compact diagonal covariance CSV accepted by the default loader.
 
+For multi-scan extraction, pass a batch CSV. The default header is:
+
+```csv
+path,stamp,tx,ty,tz,roll,pitch,yaw
+scan_000000.bin,12.30,0,0,0,0,0,0
+scan_000001.bin,12.40,0.1,0,0,0,0,0.01
+```
+
+Then run:
+
+```bash
+glil_cloud_landmark_extractor \
+  --batch-csv frames.csv \
+  --base-dir ./scans \
+  --format kitti-bin \
+  --voxel 1.0 \
+  --min-points 8 \
+  --max-landmarks 256 \
+  --output cloud_landmarks.csv
+```
+
+`--path-column`, `--stamp-column`, and `--pose-columns` adapt other trajectory
+CSV schemas without rewriting the file. `--skip-invalid-rows` keeps long dataset
+conversion jobs running when a row or cloud file is bad.
+
 ## Global Mapping CSV Injector
 
 `libperception_csv_injector.so` is an optional extension module that loads the

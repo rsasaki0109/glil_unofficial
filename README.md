@@ -33,7 +33,7 @@ CPU/CUDA Docker builds.
 | Read the generated docs | <https://rsasaki0109.github.io/glil_unofficial/> |
 | Inspect exact sampling support | [ICRA2025 Exact Sampling Notes](docs/exact_sampling.md) |
 | Run the coreset benchmark | `glil_coreset_benchmark --target-cloud target --source-cloud source --csv` |
-| Generate perception CSV from a point cloud | `glil_cloud_landmark_extractor --input scan.bin --output landmarks.csv` |
+| Generate perception CSV from point clouds | `glil_cloud_landmark_extractor --batch-csv frames.csv --output landmarks.csv` |
 | Try perception landmark factors | [Perception Factors](docs/perception_factors.md) |
 | Report your own run | [Reproduction report issue](https://github.com/rsasaki0109/glil_unofficial/issues/new?template=reproduction_report.md) |
 

@@ -22,25 +22,56 @@ namespace {
 
 struct Options {
   std::string input_path;
+  std::string batch_csv_path;
   std::string output_path;
   std::string format = "auto";
   double stamp = 0.0;
   gtsam::Pose3 pose_world_sensor;
   glil::CloudLandmarkExtractorParams extractor;
+  std::string base_dir;
+  std::string path_column = "path";
+  std::string stamp_column = "stamp";
+  std::vector<std::string> pose_columns = {"tx", "ty", "tz", "roll", "pitch", "yaw"};
+  bool skip_invalid_rows = false;
   bool full_covariance = false;
   bool quiet = false;
 };
 
+struct BatchFrame {
+  std::string cloud_path;
+  double stamp = 0.0;
+  gtsam::Pose3 pose_world_sensor;
+  int line = 0;
+};
+
+struct BatchSummary {
+  std::size_t frames = 0;
+  std::size_t failed_frames = 0;
+  std::size_t loaded_points = 0;
+  std::size_t finite_points = 0;
+  std::size_t range_rejected = 0;
+  std::size_t voxel_candidates = 0;
+  std::size_t rejected_min_points = 0;
+  std::size_t observations = 0;
+};
+
 void print_help(const char* argv0) {
   std::cout << "Usage: " << argv0 << " --input cloud [options]\n"
-            << "  --input P              Input point cloud path\n"
+            << "       " << argv0 << " --batch-csv frames.csv --output observations.csv [options]\n"
+            << "  --input P              Single input point cloud path\n"
+            << "  --batch-csv P          Batch CSV with path,stamp,tx,ty,tz,roll,pitch,yaw columns\n"
             << "  --output P             Output perception CSV path (default: stdout)\n"
             << "  --format F             auto|gtsam|pcd|xyz|kitti-bin|compact-bin (default: auto)\n"
-            << "  --stamp T              Observation timestamp in seconds (default: 0)\n"
-            << "  --pose-xyzrpy          tx ty tz roll pitch yaw sensor pose in world, radians\n"
+            << "  --stamp T              Single-mode observation timestamp in seconds (default: 0)\n"
+            << "  --pose-xyzrpy          Single-mode tx ty tz roll pitch yaw sensor pose in world, radians\n"
+            << "  --base-dir P           Base directory for relative batch cloud paths (default: batch CSV directory)\n"
+            << "  --path-column NAME     Batch cloud path column name (default: path)\n"
+            << "  --stamp-column NAME    Batch timestamp column name (default: stamp)\n"
+            << "  --pose-columns NAMES   Batch pose columns tx,ty,tz,roll,pitch,yaw (comma-separated)\n"
+            << "  --skip-invalid-rows    Continue after invalid batch rows or failed clouds\n"
             << "  --voxel M              World-frame landmark voxel size in meters (default: 1.0)\n"
             << "  --min-points N         Minimum points per landmark voxel (default: 5)\n"
-            << "  --max-landmarks N      Keep the densest N landmarks; 0 keeps all (default: 0)\n"
+            << "  --max-landmarks N      Keep the densest N landmarks per cloud; 0 keeps all\n"
             << "  --min-range M          Reject sensor-frame points closer than M; 0 disables\n"
             << "  --max-range M          Reject sensor-frame points farther than M; 0 disables\n"
             << "  --min-covariance V     Minimum covariance diagonal variance (default: 0.01)\n"
@@ -48,6 +79,15 @@ void print_help(const char* argv0) {
             << "  --class-id NAME        CSV class_id label (default: cloud_landmark)\n"
             << "  --full-covariance      Write 3x3 covariance columns instead of diagonal CSV\n"
             << "  --quiet                Do not print extraction summary to stderr\n";
+}
+
+std::string trim(std::string value) {
+  const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; });
+  const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char c) { return std::isspace(c) != 0; }).base();
+  if (first >= last) {
+    return {};
+  }
+  return std::string(first, last);
 }
 
 int parse_int(const char* value, const char* name) {
@@ -94,6 +134,35 @@ std::string extension_of(const std::string& path) {
   return lower_string(path.substr(dot + 1));
 }
 
+std::string directory_of(const std::string& path) {
+  const auto slash = path.find_last_of("/\\");
+  if (slash == std::string::npos) {
+    return "";
+  }
+  return path.substr(0, slash);
+}
+
+bool is_absolute_path(const std::string& path) {
+  if (path.empty()) {
+    return false;
+  }
+  if (path.front() == '/' || path.front() == '\\') {
+    return true;
+  }
+  return path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) != 0 && path[1] == ':';
+}
+
+std::string join_path(const std::string& base, const std::string& path) {
+  if (path.empty() || base.empty() || is_absolute_path(path)) {
+    return path;
+  }
+  const char last = base.back();
+  if (last == '/' || last == '\\') {
+    return base + path;
+  }
+  return base + "/" + path;
+}
+
 bool is_directory(const std::string& path) {
   struct stat st;
   return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
@@ -112,6 +181,16 @@ gtsam::Pose3 make_xyzrpy_pose(double tx, double ty, double tz, double roll, doub
   return gtsam::Pose3(pose.matrix());
 }
 
+std::vector<std::string> split_comma_list(const std::string& value) {
+  std::vector<std::string> items;
+  std::string item;
+  std::istringstream stream(value);
+  while (std::getline(stream, item, ',')) {
+    items.push_back(trim(item));
+  }
+  return items;
+}
+
 Options parse_options(int argc, char** argv) {
   Options options;
   for (int i = 1; i < argc; i++) {
@@ -128,6 +207,8 @@ Options parse_options(int argc, char** argv) {
       std::exit(0);
     } else if (arg == "--input" || arg == "-i") {
       options.input_path = next("--input");
+    } else if (arg == "--batch-csv") {
+      options.batch_csv_path = next("--batch-csv");
     } else if (arg == "--output" || arg == "-o") {
       options.output_path = next("--output");
     } else if (arg == "--format") {
@@ -142,6 +223,16 @@ Options parse_options(int argc, char** argv) {
       const double pitch = parse_double(next("--pose-xyzrpy pitch"), "--pose-xyzrpy pitch");
       const double yaw = parse_double(next("--pose-xyzrpy yaw"), "--pose-xyzrpy yaw");
       options.pose_world_sensor = make_xyzrpy_pose(tx, ty, tz, roll, pitch, yaw);
+    } else if (arg == "--base-dir") {
+      options.base_dir = next("--base-dir");
+    } else if (arg == "--path-column") {
+      options.path_column = next("--path-column");
+    } else if (arg == "--stamp-column") {
+      options.stamp_column = next("--stamp-column");
+    } else if (arg == "--pose-columns") {
+      options.pose_columns = split_comma_list(next("--pose-columns"));
+    } else if (arg == "--skip-invalid-rows") {
+      options.skip_invalid_rows = true;
     } else if (arg == "--voxel") {
       options.extractor.voxel_resolution = parse_double(next("--voxel"), "--voxel");
     } else if (arg == "--min-points") {
@@ -167,11 +258,14 @@ Options parse_options(int argc, char** argv) {
     }
   }
 
-  if (options.input_path.empty()) {
-    throw std::runtime_error("--input is required");
+  if (options.input_path.empty() == options.batch_csv_path.empty()) {
+    throw std::runtime_error("provide exactly one of --input or --batch-csv");
   }
   if (!is_supported_format(options.format)) {
     throw std::runtime_error("unsupported --format: " + options.format);
+  }
+  if (options.pose_columns.size() != 6) {
+    throw std::runtime_error("--pose-columns must contain exactly six comma-separated names");
   }
   options.extractor.voxel_resolution = std::max(options.extractor.voxel_resolution, 1e-6);
   options.extractor.min_points_per_landmark = std::max(options.extractor.min_points_per_landmark, 1);
@@ -188,6 +282,30 @@ std::vector<std::string> split_words(const std::string& line) {
     words.push_back(word);
   }
   return words;
+}
+
+std::vector<std::string> split_csv_line(const std::string& line, char delimiter = ',') {
+  std::vector<std::string> tokens;
+  std::string token;
+  bool quoted = false;
+  for (std::size_t i = 0; i < line.size(); i++) {
+    const char c = line[i];
+    if (c == '"') {
+      if (quoted && i + 1 < line.size() && line[i + 1] == '"') {
+        token.push_back('"');
+        i++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (c == delimiter && !quoted) {
+      tokens.push_back(trim(token));
+      token.clear();
+    } else {
+      token.push_back(c);
+    }
+  }
+  tokens.push_back(trim(token));
+  return tokens;
 }
 
 bool parse_token_double(const std::string& token, double& value) {
@@ -410,14 +528,122 @@ std::vector<gtsam::Point3> load_points(const std::string& path, const std::strin
   throw std::runtime_error("unsupported cloud format: " + requested_format);
 }
 
-void write_csv(std::ostream& output, const std::vector<glil::PerceptionObservation>& observations, bool full_covariance) {
+int find_column(const std::vector<std::string>& header, const std::string& name) {
+  const auto exact = std::find(header.begin(), header.end(), name);
+  if (exact != header.end()) {
+    return static_cast<int>(std::distance(header.begin(), exact));
+  }
+
+  const std::string lowered_name = lower_string(name);
+  for (std::size_t i = 0; i < header.size(); i++) {
+    if (lower_string(header[i]) == lowered_name) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
+std::string token_at(const std::vector<std::string>& tokens, int index, const std::string& name, int line) {
+  if (index < 0 || static_cast<std::size_t>(index) >= tokens.size() || tokens[index].empty()) {
+    throw std::runtime_error("missing batch column '" + name + "' on line " + std::to_string(line));
+  }
+  return tokens[index];
+}
+
+double parse_batch_double(const std::vector<std::string>& tokens, int index, const std::string& name, int line) {
+  double value = 0.0;
+  const std::string token = token_at(tokens, index, name, line);
+  if (!parse_token_double(token, value) || !std::isfinite(value)) {
+    throw std::runtime_error("invalid batch column '" + name + "' on line " + std::to_string(line));
+  }
+  return value;
+}
+
+std::vector<BatchFrame> load_batch_frames(const Options& options) {
+  std::ifstream input(options.batch_csv_path);
+  if (!input) {
+    throw std::runtime_error("failed to open batch CSV: " + options.batch_csv_path);
+  }
+
+  const std::string base_dir = options.base_dir.empty() ? directory_of(options.batch_csv_path) : options.base_dir;
+  std::vector<std::string> header;
+  std::vector<BatchFrame> frames;
+  std::string line;
+  int line_no = 0;
+
+  while (std::getline(input, line)) {
+    line_no++;
+    const std::string stripped = trim(line);
+    if (stripped.empty() || stripped.front() == '#') {
+      continue;
+    }
+
+    if (header.empty()) {
+      header = split_csv_line(stripped);
+      continue;
+    }
+
+    try {
+      const std::vector<std::string> tokens = split_csv_line(stripped);
+      const int path_index = find_column(header, options.path_column);
+      const int stamp_index = find_column(header, options.stamp_column);
+      std::vector<int> pose_indices;
+      pose_indices.reserve(options.pose_columns.size());
+      for (const auto& name : options.pose_columns) {
+        pose_indices.push_back(find_column(header, name));
+      }
+
+      if (path_index < 0) {
+        throw std::runtime_error("batch CSV is missing path column '" + options.path_column + "'");
+      }
+      if (stamp_index < 0) {
+        throw std::runtime_error("batch CSV is missing stamp column '" + options.stamp_column + "'");
+      }
+      for (std::size_t i = 0; i < pose_indices.size(); i++) {
+        if (pose_indices[i] < 0) {
+          throw std::runtime_error("batch CSV is missing pose column '" + options.pose_columns[i] + "'");
+        }
+      }
+
+      const std::string cloud_path = join_path(base_dir, token_at(tokens, path_index, options.path_column, line_no));
+      const double stamp = parse_batch_double(tokens, stamp_index, options.stamp_column, line_no);
+      const double tx = parse_batch_double(tokens, pose_indices[0], options.pose_columns[0], line_no);
+      const double ty = parse_batch_double(tokens, pose_indices[1], options.pose_columns[1], line_no);
+      const double tz = parse_batch_double(tokens, pose_indices[2], options.pose_columns[2], line_no);
+      const double roll = parse_batch_double(tokens, pose_indices[3], options.pose_columns[3], line_no);
+      const double pitch = parse_batch_double(tokens, pose_indices[4], options.pose_columns[4], line_no);
+      const double yaw = parse_batch_double(tokens, pose_indices[5], options.pose_columns[5], line_no);
+      frames.push_back({cloud_path, stamp, make_xyzrpy_pose(tx, ty, tz, roll, pitch, yaw), line_no});
+    } catch (const std::exception& e) {
+      if (!options.skip_invalid_rows) {
+        throw;
+      }
+      if (!options.quiet) {
+        std::cerr << "skip batch row line=" << line_no << " reason=" << e.what() << '\n';
+      }
+    }
+  }
+
+  if (header.empty()) {
+    throw std::runtime_error("batch CSV has no header row: " + options.batch_csv_path);
+  }
+  if (frames.empty()) {
+    throw std::runtime_error("batch CSV produced no valid frames: " + options.batch_csv_path);
+  }
+  return frames;
+}
+
+void write_csv_header(std::ostream& output, bool full_covariance) {
   output << std::setprecision(17);
   if (full_covariance) {
     output << "stamp,class_id,landmark_id,x,y,z,cov_xx,cov_xy,cov_xz,cov_yx,cov_yy,cov_yz,cov_zx,cov_zy,cov_zz,confidence\n";
   } else {
     output << "stamp,class_id,landmark_id,x,y,z,cov_xx,cov_yy,cov_zz,confidence\n";
   }
+}
 
+void write_csv_rows(std::ostream& output, const std::vector<glil::PerceptionObservation>& observations, bool full_covariance) {
+  output << std::setprecision(17);
   for (const auto& observation : observations) {
     output << observation.stamp << ',' << observation.class_id << ',' << observation.landmark_id << ',' << observation.position_sensor.x() << ','
            << observation.position_sensor.y() << ',' << observation.position_sensor.z() << ',';
@@ -432,29 +658,79 @@ void write_csv(std::ostream& output, const std::vector<glil::PerceptionObservati
   }
 }
 
+std::ostream* open_output(const std::string& path, std::ofstream& file) {
+  if (path.empty()) {
+    return &std::cout;
+  }
+  file.open(path);
+  if (!file) {
+    throw std::runtime_error("failed to open output CSV: " + path);
+  }
+  return &file;
+}
+
+void run_single(const Options& options, std::ostream& output) {
+  const std::vector<gtsam::Point3> points = load_points(options.input_path, options.format);
+  const auto result = glil::extract_cloud_landmark_observations(points, options.pose_world_sensor, options.stamp, options.extractor);
+  write_csv_header(output, options.full_covariance);
+  write_csv_rows(output, result.observations, options.full_covariance);
+
+  if (!options.quiet) {
+    std::cerr << "loaded_points=" << points.size() << " finite_points=" << result.finite_points << " range_rejected=" << result.range_rejected
+              << " voxel_candidates=" << result.voxel_candidates << " rejected_min_points=" << result.rejected_min_points
+              << " observations=" << result.observations.size() << '\n';
+  }
+}
+
+void run_batch(const Options& options, std::ostream& output) {
+  const std::vector<BatchFrame> frames = load_batch_frames(options);
+  BatchSummary summary;
+  write_csv_header(output, options.full_covariance);
+
+  for (const auto& frame : frames) {
+    try {
+      const std::vector<gtsam::Point3> points = load_points(frame.cloud_path, options.format);
+      const auto result = glil::extract_cloud_landmark_observations(points, frame.pose_world_sensor, frame.stamp, options.extractor);
+      write_csv_rows(output, result.observations, options.full_covariance);
+
+      summary.frames++;
+      summary.loaded_points += points.size();
+      summary.finite_points += result.finite_points;
+      summary.range_rejected += result.range_rejected;
+      summary.voxel_candidates += result.voxel_candidates;
+      summary.rejected_min_points += result.rejected_min_points;
+      summary.observations += result.observations.size();
+    } catch (const std::exception& e) {
+      summary.failed_frames++;
+      if (!options.skip_invalid_rows) {
+        throw;
+      }
+      if (!options.quiet) {
+        std::cerr << "skip batch cloud line=" << frame.line << " path=" << frame.cloud_path << " reason=" << e.what() << '\n';
+      }
+    }
+  }
+
+  if (!options.quiet) {
+    std::cerr << "frames=" << summary.frames << " failed_frames=" << summary.failed_frames << " loaded_points=" << summary.loaded_points
+              << " finite_points=" << summary.finite_points << " range_rejected=" << summary.range_rejected
+              << " voxel_candidates=" << summary.voxel_candidates << " rejected_min_points=" << summary.rejected_min_points
+              << " observations=" << summary.observations << '\n';
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   try {
     const Options options = parse_options(argc, argv);
-    const std::vector<gtsam::Point3> points = load_points(options.input_path, options.format);
-    const auto result = glil::extract_cloud_landmark_observations(points, options.pose_world_sensor, options.stamp, options.extractor);
-
     std::ofstream file;
-    std::ostream* output = &std::cout;
-    if (!options.output_path.empty()) {
-      file.open(options.output_path);
-      if (!file) {
-        throw std::runtime_error("failed to open output CSV: " + options.output_path);
-      }
-      output = &file;
-    }
-    write_csv(*output, result.observations, options.full_covariance);
+    std::ostream* output = open_output(options.output_path, file);
 
-    if (!options.quiet) {
-      std::cerr << "loaded_points=" << points.size() << " finite_points=" << result.finite_points << " range_rejected=" << result.range_rejected
-                << " voxel_candidates=" << result.voxel_candidates << " rejected_min_points=" << result.rejected_min_points
-                << " observations=" << result.observations.size() << '\n';
+    if (!options.batch_csv_path.empty()) {
+      run_batch(options, *output);
+    } else {
+      run_single(options, *output);
     }
     return 0;
   } catch (const std::exception& e) {
