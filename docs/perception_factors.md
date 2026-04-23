@@ -109,6 +109,22 @@ glil_cloud_landmark_extractor \
 CSV schemas without rewriting the file. `--skip-invalid-rows` keeps long dataset
 conversion jobs running when a row or cloud file is bad.
 
+To make the generated CSV runnable by the GLIL global mapping injector, generate
+a small config root:
+
+```bash
+glil_perception_config_generator \
+  --config-root run_config \
+  --csv cloud_landmarks.csv \
+  --time-tolerance 0.10 \
+  --allowed-class-ids cloud_landmark
+```
+
+The generator writes or updates `config_perception.json`, adds
+`libperception_csv_injector.so` to `config_ros.json`, and links both files from
+`config.json`. Existing JSON files are parsed with comment support, but rewritten
+as plain formatted JSON.
+
 ## Global Mapping CSV Injector
 
 `libperception_csv_injector.so` is an optional extension module that loads the
@@ -199,6 +215,8 @@ Implemented now:
   initialization, and factor insertion
 - `CloudLandmarkExtractor` and `glil_cloud_landmark_extractor` for converting
   real point clouds into perception-observation CSVs
+- `glil_perception_config_generator` for wiring a perception CSV into a runnable
+  config root
 - `libperception_csv_injector.so` for optional global-mapping CSV factor
   injection
 - `config/sample_perception_observations.csv` for CSV injector smoke tests

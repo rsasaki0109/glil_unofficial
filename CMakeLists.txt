@@ -219,7 +219,14 @@ if(BUILD_TOOLS)
     glil
   )
 
-  list(APPEND glil_TOOL_TARGETS glil_coreset_benchmark glil_cloud_landmark_extractor)
+  add_executable(glil_perception_config_generator
+    tools/generate_perception_config.cpp
+  )
+  target_link_libraries(glil_perception_config_generator
+    glil
+  )
+
+  list(APPEND glil_TOOL_TARGETS glil_coreset_benchmark glil_cloud_landmark_extractor glil_perception_config_generator)
 endif()
 
 ###########
