@@ -1,0 +1,4 @@
+method,repeat,selected_residual_rows,selected_source_points,hessian_rel_error,gradient_rel_error,wall_ms
+full_vgicp,0,2048,2048,0.000000,0.000000,14.200
+uniform_sample,0,64,64,0.128000,0.091000,2.100
+exact_caratheodory,0,64,52,0.000000,0.000000,3.400

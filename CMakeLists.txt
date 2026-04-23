@@ -293,6 +293,20 @@ if(BUILD_TESTING)
         --report sample=${CMAKE_CURRENT_SOURCE_DIR}/config/sample_perception_factor_report.csv
         --format csv
     )
+    add_test(
+      NAME reproduction_bundle
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tools/glil_reproduction_bundle
+        --run-dir ${CMAKE_CURRENT_SOURCE_DIR}/config/sample_reproduction_bundle
+        --command-log ${CMAKE_CURRENT_SOURCE_DIR}/config/sample_reproduction_bundle/command.txt
+        --ape ${CMAKE_CURRENT_SOURCE_DIR}/config/sample_reproduction_bundle/evo_ape.txt
+        --benchmark-csv ${CMAKE_CURRENT_SOURCE_DIR}/config/sample_reproduction_bundle/coreset_benchmark.csv
+        --perception-report sample=${CMAKE_CURRENT_SOURCE_DIR}/config/sample_perception_factor_report.csv
+        --artifact ${CMAKE_CURRENT_SOURCE_DIR}/config/sample_perception_observations.csv
+        --git-commit sample-sha
+        --format markdown
+        --output ${CMAKE_CURRENT_BINARY_DIR}/reproduction_bundle_smoke.md
+        --strict
+    )
   endif()
 endif()
 
@@ -312,7 +326,9 @@ if(BUILD_TOOLS)
   install(TARGETS ${glil_TOOL_TARGETS}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
-  install(PROGRAMS tools/glil_perception_workflow
+  install(PROGRAMS
+    tools/glil_perception_workflow
+    tools/glil_reproduction_bundle
     DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
 endif()

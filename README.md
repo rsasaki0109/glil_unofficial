@@ -28,6 +28,7 @@ CPU/CUDA Docker builds.
 | If you want to... | Use this |
 |---|---|
 | Check the headline evidence | [Reproduction scoreboard](docs/reproduction.md) |
+| Bundle a reproduction run | `glil_reproduction_bundle --run-dir run --perception-report run/perception_report.csv --format markdown` |
 | Pick the validated config | [Recommended Configs](#recommended-configs) |
 | Build the CI-tested Docker image | [Run A Docker Build](#run-a-docker-build) |
 | Read the generated docs | <https://rsasaki0109.github.io/glil_unofficial/> |
@@ -68,8 +69,8 @@ docker build \
 
 - It packages the 2026-04 MegaParticles reproduction evidence in a form that is
   easy to inspect and rerun.
-- It keeps a small scoreboard for the validated configs instead of asking users
-  to infer results from raw logs.
+- It keeps a small scoreboard and bundle generator for validated configs instead
+  of asking users to infer results from raw logs.
 - It includes CPU and CUDA Docker build checks so dependency drift is visible.
 - It exposes `VGICP_CORESET` exact-sampling diagnostics for CPU registration
   factor experiments.

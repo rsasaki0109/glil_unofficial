@@ -1,0 +1,1 @@
+glil_perception_workflow --observations-csv config/sample_perception_observations.csv --run-dir perception_run --report-format csv

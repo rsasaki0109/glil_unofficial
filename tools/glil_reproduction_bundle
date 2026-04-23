@@ -1,0 +1,534 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Build a compact GLIL reproduction bundle from run artifacts."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as _dt
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+PERCEPTION_COLUMNS = [
+    ("status", "status"),
+    ("injectable", "injectable"),
+    ("observations", "observations"),
+    ("accepted_observations", "accepted"),
+    ("accepted_rate", "accepted rate"),
+    ("rejected_low_confidence", "rejected low confidence"),
+    ("rejected_class", "rejected class"),
+    ("unique_landmarks", "unique landmarks"),
+    ("accepted_unique_landmarks", "accepted landmarks"),
+    ("matched_accepted_observations", "matched accepted"),
+    ("accepted_match_rate", "accepted match rate"),
+    ("confidence_median", "confidence median"),
+    ("factor_sigma_median", "factor sigma median"),
+    ("csv_path", "source CSV"),
+]
+
+
+METRIC_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_ /.-]{0,48})\s*(?:[:=]\s*|\s+)([-+0-9.eE]+|PASS|WARN|FAIL|OK|NA)\s*$")
+IMPORTANT_METRICS = {
+    "rmse",
+    "mean",
+    "median",
+    "std",
+    "min",
+    "max",
+    "sse",
+    "ape",
+    "status",
+    "playback",
+    "rows",
+}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Create a markdown or JSON reproduction bundle from GLIL run artifacts.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--run-dir", required=True, help="Run directory to describe")
+    parser.add_argument("--output", help="Write bundle to this path instead of stdout")
+    parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    parser.add_argument("--title", default="GLIL Reproduction Bundle")
+    parser.add_argument("--repo-root", default=".", help="Repository root for git commit lookup and path display")
+    parser.add_argument("--git-commit", help="Override git commit hash")
+    parser.add_argument("--command-log", action="append", default=[], help="Command log file; repeatable")
+    parser.add_argument("--perception-report", action="append", default=[], help="Perception report CSV, optionally LABEL=PATH; repeatable")
+    parser.add_argument("--ape", action="append", default=[], help="APE or trajectory metric text file; repeatable")
+    parser.add_argument("--benchmark-csv", action="append", default=[], help="Coreset benchmark CSV; repeatable")
+    parser.add_argument("--config-root", action="append", default=[], help="Config root directory; repeatable")
+    parser.add_argument("--artifact", action="append", default=[], help="Extra artifact path, optionally LABEL=PATH; repeatable")
+    parser.add_argument("--note", action="append", default=[], help="Additional note to include; repeatable")
+    parser.add_argument("--min-accepted", type=int, default=1, help="Minimum accepted perception observations for PASS")
+    parser.add_argument(
+        "--min-accepted-match-rate",
+        type=float,
+        default=0.0,
+        help="Minimum accepted timestamp match rate percent when present",
+    )
+    parser.add_argument("--strict", action="store_true", help="Exit nonzero when any supplied artifact is missing")
+    return parser.parse_args()
+
+
+def utc_now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def split_spec(spec: str) -> tuple[str, str]:
+    if "=" in spec:
+        label, path = spec.split("=", 1)
+        label = label.strip()
+        path = path.strip()
+        if label and path:
+            return label, path
+    path = spec.strip()
+    label = Path(path).stem or "artifact"
+    return label, path
+
+
+def display_path(path: str | Path, *, repo_root: Path, run_dir: Path | None = None) -> str:
+    raw = Path(path)
+    if not str(raw):
+        return "NA"
+
+    try:
+        resolved = raw.resolve()
+    except OSError:
+        resolved = (Path.cwd() / raw).resolve() if not raw.is_absolute() else raw
+
+    bases: list[Path] = []
+    if run_dir is not None:
+        bases.append(run_dir.resolve())
+    bases.append(repo_root.resolve())
+    bases.append(Path.cwd().resolve())
+
+    for base in bases:
+        try:
+            rel = resolved.relative_to(base)
+            return str(rel) if str(rel) != "." else "."
+        except ValueError:
+            continue
+
+    if raw.is_absolute():
+        return f"<external>/{raw.name}"
+    return str(raw)
+
+
+def markdown_cell(value: Any) -> str:
+    text = "NA" if value is None or value == "" else str(value)
+    return text.replace("\\", "\\\\").replace("`", "\\`").replace("|", "\\|").replace("\n", " ")
+
+
+def json_file(path: str | Path, *, repo_root: Path, run_dir: Path | None = None) -> dict[str, Any]:
+    path_obj = Path(path)
+    exists = path_obj.exists()
+    return {
+        "path": display_path(path_obj, repo_root=repo_root, run_dir=run_dir),
+        "exists": exists,
+        "bytes": path_obj.stat().st_size if exists and path_obj.is_file() else None,
+    }
+
+
+def git_commit(repo_root: Path, override: str | None) -> str:
+    if override:
+        return override
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def load_text(path: Path, max_lines: int = 80) -> tuple[str, bool]:
+    if not path.exists() or not path.is_file():
+        return "", False
+    lines: list[str] = []
+    with path.open("r", encoding="utf-8", errors="replace") as stream:
+        for index, line in enumerate(stream):
+            if index >= max_lines:
+                lines.append("... truncated ...\n")
+                break
+            lines.append(line)
+    return "".join(lines).rstrip(), True
+
+
+def parse_percent(value: str | None) -> float | None:
+    if not value:
+        return None
+    stripped = value.strip()
+    if stripped.endswith("%"):
+        stripped = stripped[:-1]
+    try:
+        return float(stripped)
+    except ValueError:
+        return None
+
+
+def parse_int(value: str | None) -> int:
+    if not value:
+        return 0
+    try:
+        return int(float(value))
+    except ValueError:
+        return 0
+
+
+def perception_status(metrics: dict[str, str], min_accepted: int, min_match_rate: float) -> str:
+    injectable = metrics.get("injectable", "no").strip().lower()
+    accepted = parse_int(metrics.get("accepted_observations"))
+    match_rate = parse_percent(metrics.get("accepted_match_rate"))
+    match_ok = match_rate is None or match_rate >= min_match_rate
+    if injectable == "yes" and accepted >= min_accepted and match_ok:
+        return "PASS"
+    if accepted > 0:
+        return "WARN"
+    return "FAIL"
+
+
+def parse_perception_report(
+    spec: str,
+    *,
+    repo_root: Path,
+    run_dir: Path,
+    min_accepted: int,
+    min_match_rate: float,
+) -> dict[str, Any]:
+    label, path_text = split_spec(spec)
+    path = Path(path_text)
+    entry: dict[str, Any] = {
+        "label": label,
+        "path": display_path(path, repo_root=repo_root, run_dir=run_dir),
+        "exists": path.exists(),
+        "metrics": {},
+        "status": "MISSING",
+        "error": None,
+    }
+    if not path.exists():
+        entry["error"] = "missing perception report"
+        return entry
+    try:
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            reader = csv.reader(stream)
+            for row in reader:
+                if not row or row[0].startswith("#"):
+                    continue
+                if row[0] == "metric" and len(row) >= 3:
+                    entry["metrics"][row[1]] = row[2]
+    except OSError as exc:
+        entry["error"] = str(exc)
+        entry["status"] = "ERROR"
+        return entry
+
+    if not entry["metrics"]:
+        entry["error"] = "no metric rows"
+        entry["status"] = "ERROR"
+        return entry
+
+    entry["status"] = perception_status(entry["metrics"], min_accepted, min_match_rate)
+    return entry
+
+
+def parse_metric_text(spec: str, *, repo_root: Path, run_dir: Path) -> dict[str, Any]:
+    label, path_text = split_spec(spec)
+    path = Path(path_text)
+    entry: dict[str, Any] = {
+        "label": label,
+        "path": display_path(path, repo_root=repo_root, run_dir=run_dir),
+        "exists": path.exists(),
+        "metrics": {},
+        "excerpt": "",
+    }
+    text, ok = load_text(path, max_lines=80)
+    if not ok:
+        return entry
+    entry["excerpt"] = text
+    for line in text.splitlines():
+        match = METRIC_RE.match(line)
+        if not match:
+            continue
+        key = match.group(1).strip().lower().replace(" ", "_")
+        short_key = key.split("/")[-1]
+        if key in IMPORTANT_METRICS or short_key in IMPORTANT_METRICS:
+            entry["metrics"][key] = match.group(2).strip()
+    return entry
+
+
+def summarize_benchmark_csv(spec: str, *, repo_root: Path, run_dir: Path) -> dict[str, Any]:
+    label, path_text = split_spec(spec)
+    path = Path(path_text)
+    entry: dict[str, Any] = {
+        "label": label,
+        "path": display_path(path, repo_root=repo_root, run_dir=run_dir),
+        "exists": path.exists(),
+        "rows": 0,
+        "methods": [],
+        "columns": [],
+    }
+    if not path.exists():
+        return entry
+    try:
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            reader = csv.DictReader(stream)
+            entry["columns"] = reader.fieldnames or []
+            methods: set[str] = set()
+            rows = 0
+            for row in reader:
+                rows += 1
+                for key in ("method", "name", "case"):
+                    value = row.get(key)
+                    if value:
+                        methods.add(value)
+                        break
+            entry["rows"] = rows
+            entry["methods"] = sorted(methods)
+    except (OSError, csv.Error):
+        entry["rows"] = 0
+    return entry
+
+
+def collect_artifacts(args: argparse.Namespace, repo_root: Path, run_dir: Path) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+
+    def add(kind: str, spec: str) -> None:
+        label, path_text = split_spec(spec)
+        info = json_file(path_text, repo_root=repo_root, run_dir=run_dir)
+        info.update({"kind": kind, "label": label})
+        artifacts.append(info)
+
+    add("run_dir", f"run_dir={args.run_dir}")
+    for value in args.config_root:
+        add("config", value)
+    for value in args.command_log:
+        add("command", value)
+    for value in args.perception_report:
+        add("perception_report", value)
+    for value in args.ape:
+        add("metric", value)
+    for value in args.benchmark_csv:
+        add("benchmark", value)
+    for value in args.artifact:
+        add("artifact", value)
+    return artifacts
+
+
+def bundle_status(artifacts: list[dict[str, Any]], perception_reports: list[dict[str, Any]]) -> str:
+    if any(not artifact["exists"] for artifact in artifacts):
+        return "WARN"
+    if any(report["status"] in {"FAIL", "WARN", "MISSING", "ERROR"} for report in perception_reports):
+        return "WARN"
+    return "PASS"
+
+
+def make_bundle(args: argparse.Namespace) -> dict[str, Any]:
+    repo_root = Path(args.repo_root)
+    run_dir = Path(args.run_dir)
+    artifacts = collect_artifacts(args, repo_root, run_dir)
+    perception_reports = [
+        parse_perception_report(
+            spec,
+            repo_root=repo_root,
+            run_dir=run_dir,
+            min_accepted=args.min_accepted,
+            min_match_rate=args.min_accepted_match_rate,
+        )
+        for spec in args.perception_report
+    ]
+    ape_summaries = [parse_metric_text(spec, repo_root=repo_root, run_dir=run_dir) for spec in args.ape]
+    benchmark_summaries = [summarize_benchmark_csv(spec, repo_root=repo_root, run_dir=run_dir) for spec in args.benchmark_csv]
+    command_logs = []
+    for spec in args.command_log:
+        label, path_text = split_spec(spec)
+        text, exists = load_text(Path(path_text), max_lines=80)
+        command_logs.append(
+            {
+                "label": label,
+                "path": display_path(path_text, repo_root=repo_root, run_dir=run_dir),
+                "exists": exists,
+                "text": text,
+            }
+        )
+
+    return {
+        "title": args.title,
+        "generated_at": utc_now(),
+        "git_commit": git_commit(repo_root, args.git_commit),
+        "run_dir": display_path(run_dir, repo_root=repo_root),
+        "format": args.format,
+        "status": bundle_status(artifacts, perception_reports),
+        "notes": args.note,
+        "artifacts": artifacts,
+        "missing": [artifact for artifact in artifacts if not artifact["exists"]],
+        "command_logs": command_logs,
+        "perception_reports": perception_reports,
+        "ape_summaries": ape_summaries,
+        "benchmark_summaries": benchmark_summaries,
+    }
+
+
+def render_artifact_table(artifacts: list[dict[str, Any]]) -> list[str]:
+    lines = [
+        "| kind | label | path | exists | bytes |",
+        "|---|---|---|---:|---:|",
+    ]
+    for artifact in artifacts:
+        size = artifact["bytes"] if artifact["bytes"] is not None else "NA"
+        exists = "yes" if artifact["exists"] else "no"
+        lines.append(
+            f"| {markdown_cell(artifact['kind'])} | {markdown_cell(artifact['label'])} | `{markdown_cell(artifact['path'])}` | {exists} | {size} |"
+        )
+    return lines
+
+
+def render_perception_table(reports: list[dict[str, Any]]) -> list[str]:
+    if not reports:
+        return ["No perception reports were supplied."]
+    header = ["run"] + [title for _, title in PERCEPTION_COLUMNS] + ["report"]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "|" + "|".join(["---"] * len(header)) + "|",
+    ]
+    for report in reports:
+        metrics = report["metrics"]
+        row = [f"`{markdown_cell(report['label'])}`"]
+        for key, _ in PERCEPTION_COLUMNS:
+            value = report["status"] if key == "status" else metrics.get(key, "NA")
+            row.append(markdown_cell(value))
+        row.append(f"`{markdown_cell(report['path'])}`")
+        lines.append("| " + " | ".join(row) + " |")
+    return lines
+
+
+def render_metric_table(title: str, summaries: list[dict[str, Any]]) -> list[str]:
+    lines = [f"## {title}", ""]
+    if not summaries:
+        lines.append("No files were supplied.")
+        return lines
+    lines.extend(["| label | path | exists | extracted metrics |", "|---|---|---:|---|"])
+    for summary in summaries:
+        metrics = ", ".join(f"{key}={value}" for key, value in summary.get("metrics", {}).items()) or "NA"
+        exists = "yes" if summary["exists"] else "no"
+        lines.append(
+            f"| {markdown_cell(summary['label'])} | `{markdown_cell(summary['path'])}` | {exists} | {markdown_cell(metrics)} |"
+        )
+    return lines
+
+
+def render_benchmark_table(summaries: list[dict[str, Any]]) -> list[str]:
+    lines = ["## Coreset Benchmarks", ""]
+    if not summaries:
+        lines.append("No benchmark CSV files were supplied.")
+        return lines
+    lines.extend(["| label | path | exists | rows | methods |", "|---|---|---:|---:|---|"])
+    for summary in summaries:
+        methods = ", ".join(summary["methods"]) if summary["methods"] else "NA"
+        exists = "yes" if summary["exists"] else "no"
+        lines.append(
+            f"| {markdown_cell(summary['label'])} | `{markdown_cell(summary['path'])}` | {exists} | {summary['rows']} | {markdown_cell(methods)} |"
+        )
+    return lines
+
+
+def render_markdown(bundle: dict[str, Any]) -> str:
+    lines: list[str] = [
+        f"# {bundle['title']}",
+        "",
+        "| field | value |",
+        "|---|---|",
+        f"| status | {markdown_cell(bundle['status'])} |",
+        f"| generated at | `{markdown_cell(bundle['generated_at'])}` |",
+        f"| git commit | `{markdown_cell(bundle['git_commit'])}` |",
+        f"| run directory | `{markdown_cell(bundle['run_dir'])}` |",
+        "",
+        "## Reproduction Checklist",
+        "",
+        "- Record the command used to run GLIL.",
+        "- Attach the config root or config diff.",
+        "- Attach trajectory metrics or smoke markers.",
+        "- Attach perception readiness when perception factors are enabled.",
+        "- Include artifact hashes when promoting a run into the scoreboard.",
+        "",
+        "## Artifacts",
+        "",
+    ]
+    lines.extend(render_artifact_table(bundle["artifacts"]))
+    lines.extend(["", "## Perception Readiness", ""])
+    lines.extend(render_perception_table(bundle["perception_reports"]))
+    lines.extend([""])
+    lines.extend(render_metric_table("Trajectory Metrics", bundle["ape_summaries"]))
+    lines.extend([""])
+    lines.extend(render_benchmark_table(bundle["benchmark_summaries"]))
+
+    lines.extend(["", "## Commands", ""])
+    if not bundle["command_logs"]:
+        lines.append("No command logs were supplied.")
+    for command in bundle["command_logs"]:
+        lines.append(f"### {command['label']}")
+        lines.append("")
+        lines.append(f"Path: `{markdown_cell(command['path'])}`")
+        lines.append("")
+        if command["exists"] and command["text"]:
+            lines.append("```bash")
+            lines.append(command["text"])
+            lines.append("```")
+        elif command["exists"]:
+            lines.append("Command log is empty.")
+        else:
+            lines.append("Command log is missing.")
+        lines.append("")
+
+    lines.extend(["## Missing Files", ""])
+    if bundle["missing"]:
+        for artifact in bundle["missing"]:
+            lines.append(f"- `{markdown_cell(artifact['path'])}` ({markdown_cell(artifact['kind'])})")
+    else:
+        lines.append("No supplied files are missing.")
+
+    if bundle["notes"]:
+        lines.extend(["", "## Notes", ""])
+        for note in bundle["notes"]:
+            lines.append(f"- {markdown_cell(note)}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_output(text: str, output_path: str | None) -> None:
+    if output_path:
+        path = Path(output_path)
+        if path.parent != Path("."):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+
+
+def main() -> int:
+    args = parse_args()
+    bundle = make_bundle(args)
+    if args.strict and bundle["missing"]:
+        sys.stderr.write("error: supplied artifact is missing\n")
+        return 1
+    if args.format == "json":
+        text = json.dumps(bundle, indent=2, sort_keys=True) + "\n"
+    else:
+        text = render_markdown(bundle)
+    write_output(text, args.output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

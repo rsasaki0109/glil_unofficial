@@ -39,6 +39,12 @@ assignees: ""
 - Accepted timestamp match rate:
 - Rejected class / low-confidence counts:
 
+## Reproduction Bundle Optional
+
+- Bundle command:
+- Bundle markdown or JSON path:
+- Missing supplied artifacts:
+
 ## Notes
 
 Add the command, relevant log excerpt, or comparison target if available.

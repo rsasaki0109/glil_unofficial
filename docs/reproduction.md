@@ -53,6 +53,28 @@ glil_perception_report_summary \
 This keeps accepted factor counts, rejected-observation reasons, and timestamp
 match rates visible before a run is promoted into the scoreboard.
 
+## Reproduction Bundle
+
+Use `glil_reproduction_bundle` to package the command, config pointer,
+perception readiness, trajectory metrics, benchmark CSV, and artifact list for a
+run before opening a reproduction issue:
+
+```bash
+glil_reproduction_bundle \
+  --run-dir dataset_a \
+  --command-log dataset_a/command.txt \
+  --ape dataset_a/evo_ape.txt \
+  --perception-report dataset_a/perception_report.csv \
+  --benchmark-csv dataset_a/coreset_benchmark.csv \
+  --format markdown \
+  --output dataset_a/reproduction_bundle.md
+```
+
+The bundle keeps paths display-safe by preferring run-directory or repository
+relative paths, and it marks missing supplied artifacts as warnings instead of
+silently ignoring them. Use `--format json` when a script needs to ingest the
+same evidence.
+
 ## Reproduction Reports
 
 If you try another dataset, open a
