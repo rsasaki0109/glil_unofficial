@@ -226,7 +226,21 @@ if(BUILD_TOOLS)
     glil
   )
 
-  list(APPEND glil_TOOL_TARGETS glil_coreset_benchmark glil_cloud_landmark_extractor glil_perception_config_generator)
+  add_executable(glil_perception_factor_report
+    tools/report_perception_factors.cpp
+    src/glil/perception/perception_observation_io.cpp
+    src/glil/factors/perception_landmark_factor.cpp
+  )
+  target_include_directories(glil_perception_factor_report PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/json/include
+  )
+  target_link_libraries(glil_perception_factor_report
+    Eigen3::Eigen
+    gtsam
+  )
+
+  list(APPEND glil_TOOL_TARGETS glil_coreset_benchmark glil_cloud_landmark_extractor glil_perception_config_generator glil_perception_factor_report)
 endif()
 
 ###########
@@ -250,6 +264,16 @@ if(BUILD_TESTING)
     glil
   )
   add_test(NAME integrated_vgicp_coreset_factor COMMAND test_integrated_vgicp_coreset_factor)
+
+  if(BUILD_TOOLS)
+    add_test(
+      NAME perception_factor_report
+      COMMAND glil_perception_factor_report
+        --csv ${CMAKE_CURRENT_SOURCE_DIR}/config/sample_perception_observations.csv
+        --config-perception ${CMAKE_CURRENT_SOURCE_DIR}/config/config_perception.json
+        --format csv
+    )
+  endif()
 endif()
 
 #############

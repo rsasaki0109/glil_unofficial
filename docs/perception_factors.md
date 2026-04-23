@@ -140,6 +140,26 @@ update `config_perception.json`, add `libperception_csv_injector.so` to
 `config_ros.json`, and link both files from `config.json`. Existing JSON files
 are parsed with comment support, but rewritten as plain formatted JSON.
 
+## Perception Factor Report
+
+Use `glil_perception_factor_report` before a long mapping run to check whether a
+CSV is likely to produce useful factors under the same filters as the injector:
+
+```bash
+glil_perception_factor_report \
+  --csv cloud_landmarks.csv \
+  --config-root run_config \
+  --submap-stamps submaps.csv \
+  --format markdown \
+  --output perception_report.md
+```
+
+The report summarizes observation count, accepted/rejected counts, class
+breakdown, unique landmarks, confidence and covariance statistics, robust-loss
+settings, and timestamp match rates against optional submap stamps. The
+`--submap-stamps` file can be a one-column timestamp list or a CSV with a
+`stamp` column. Use `--format csv` for scripts.
+
 ## Global Mapping CSV Injector
 
 `libperception_csv_injector.so` is an optional extension module that loads the
@@ -232,6 +252,8 @@ Implemented now:
   real point clouds into perception-observation CSVs
 - `glil_perception_config_generator` and extractor `--config-root` wiring for
   turning a perception CSV into a runnable config root
+- `glil_perception_factor_report` for reporting perception CSV factor readiness,
+  class filtering, confidence, covariance, and timestamp match rates
 - `libperception_csv_injector.so` for optional global-mapping CSV factor
   injection
 - `config/sample_perception_observations.csv` for CSV injector smoke tests
