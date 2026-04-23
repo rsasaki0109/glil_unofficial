@@ -32,6 +32,7 @@ CPU/CUDA Docker builds.
 | Build the CI-tested Docker image | [Run A Docker Build](#run-a-docker-build) |
 | Read the generated docs | <https://rsasaki0109.github.io/glil_unofficial/> |
 | Inspect exact sampling support | [ICRA2025 Exact Sampling Notes](docs/exact_sampling.md) |
+| Run the coreset benchmark | `glil_coreset_benchmark --repeat 8 --target 64 --clusters 64` |
 | Try perception landmark factors | [Perception Factors](docs/perception_factors.md) |
 | Report your own run | [Reproduction report issue](https://github.com/rsasaki0109/glil_unofficial/issues/new?template=reproduction_report.md) |
 
@@ -66,6 +67,8 @@ docker build \
 - It includes CPU and CUDA Docker build checks so dependency drift is visible.
 - It exposes `VGICP_CORESET` exact-sampling diagnostics for CPU registration
   factor experiments.
+- It includes a synthetic coreset benchmark for comparing full VGICP, uniform
+  sampling, and Fast-Caratheodory row selection on the same fixed problem.
 - It ships an opt-in perception landmark factor path for stable semantic cues.
 - It gives LiDAR-SLAM users a concrete place to file reproduction reports.
 

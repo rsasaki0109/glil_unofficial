@@ -13,6 +13,7 @@ option(BUILD_WITH_CUDA "Build with GPU support" OFF)
 option(BUILD_WITH_CUDA_MULTIARCH "Build with GPU cross-platform support" OFF)
 option(BUILD_WITH_VIEWER "Build with visualizer" ON)
 option(BUILD_WITH_MARCH_NATIVE "Build with -march=native" OFF)
+option(BUILD_TOOLS "Build command line tools" ON)
 option(GLIL_PROFILE_TIMING "Emit per-frame TRUE GLIL timing logs" ON)
 
 if(BUILD_WITH_MARCH_NATIVE)
@@ -199,6 +200,20 @@ endif()
 
 
 ###########
+## Tools ##
+###########
+
+if(BUILD_TOOLS)
+  add_executable(glil_coreset_benchmark
+    tools/benchmark_coreset_factor.cpp
+  )
+  target_link_libraries(glil_coreset_benchmark
+    glil
+  )
+  list(APPEND glil_TOOL_TARGETS glil_coreset_benchmark)
+endif()
+
+###########
 ## Tests ##
 ###########
 
@@ -233,6 +248,11 @@ install(TARGETS caratheodory ${glil_LIBRARIES}
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+if(BUILD_TOOLS)
+  install(TARGETS ${glil_TOOL_TARGETS}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  )
+endif()
 set(CMAKE_CONFIG_INSTALL_DIR
   "${CMAKE_INSTALL_LIBDIR}/cmake/glil"
   CACHE PATH "Install directory for CMake config files"

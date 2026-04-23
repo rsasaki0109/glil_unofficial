@@ -69,12 +69,38 @@ Gaussian voxel map, linearizes a `VGICP_CORESET` factor, and checks that these
 stats are populated. This gives CI a direct smoke test for the ICRA2025 exact
 sampling path.
 
+## Synthetic Benchmark
+
+Build the benchmark command and run it on a deterministic synthetic grid:
+
+```bash
+cmake --build build --target glil_coreset_benchmark
+./build/glil_coreset_benchmark --repeat 8 --target 64 --clusters 64
+```
+
+The command compares three paths on the same fixed-target VGICP problem:
+
+- `full_vgicp`: baseline evaluation over all valid residual rows.
+- `uniform_sample`: diagnostic sampled residual rows with simple reweighting.
+- `exact_caratheodory`: Fast-Caratheodory row selection through
+  `IntegratedVGICPCoresetFactor`.
+
+The default output reports first-call linearization time, repeated snapshot reuse
+time, relative augmented-Hessian error against full VGICP, valid correspondences,
+selected residual rows, selected source points, and coreset extraction count. Use
+`--csv` when collecting results from multiple target sizes.
+
+A healthy smoke run should show `full_vgicp` as the zero-error reference,
+`uniform_sample` with non-zero relative augmented-Hessian error, and
+`exact_caratheodory` close to machine precision with a single coreset extraction
+when immutable snapshot reuse is enabled.
+
 ## Next Work
 
 The remaining engineering targets are:
 
-- a dedicated benchmark command that compares full VGICP, uniform sampling, and
-  coreset sampling on the same submap pairs
+- a dataset-backed benchmark command that compares full VGICP, uniform sampling,
+  and coreset sampling on recorded submap pairs
 - a compact local occupancy bit-chunk grid fallback for environments where the
   `gtsam_points` helper is unavailable
 - a stats-driven benchmark report for `VGICP_CORESET` parameters and debug counters
