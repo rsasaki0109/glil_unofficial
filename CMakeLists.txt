@@ -65,6 +65,7 @@ add_library(glil SHARED
   # perception
   src/glil/perception/perception_factor_builder.cpp
   src/glil/perception/perception_observation_io.cpp
+  src/glil/perception/cloud_landmark_extractor.cpp
   # util
   src/glil/util/config.cpp
   src/glil/util/logging.cpp
@@ -210,7 +211,15 @@ if(BUILD_TOOLS)
   target_link_libraries(glil_coreset_benchmark
     glil
   )
-  list(APPEND glil_TOOL_TARGETS glil_coreset_benchmark)
+
+  add_executable(glil_cloud_landmark_extractor
+    tools/extract_cloud_landmarks.cpp
+  )
+  target_link_libraries(glil_cloud_landmark_extractor
+    glil
+  )
+
+  list(APPEND glil_TOOL_TARGETS glil_coreset_benchmark glil_cloud_landmark_extractor)
 endif()
 
 ###########

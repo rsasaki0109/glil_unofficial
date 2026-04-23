@@ -33,6 +33,7 @@ CPU/CUDA Docker builds.
 | Read the generated docs | <https://rsasaki0109.github.io/glil_unofficial/> |
 | Inspect exact sampling support | [ICRA2025 Exact Sampling Notes](docs/exact_sampling.md) |
 | Run the coreset benchmark | `glil_coreset_benchmark --target-cloud target --source-cloud source --csv` |
+| Generate perception CSV from a point cloud | `glil_cloud_landmark_extractor --input scan.bin --output landmarks.csv` |
 | Try perception landmark factors | [Perception Factors](docs/perception_factors.md) |
 | Report your own run | [Reproduction report issue](https://github.com/rsasaki0109/glil_unofficial/issues/new?template=reproduction_report.md) |
 
@@ -69,7 +70,8 @@ docker build \
   factor experiments.
 - It includes synthetic and real-cloud coreset benchmarks for comparing full
   VGICP, uniform sampling, and Fast-Caratheodory row selection.
-- It ships an opt-in perception landmark factor path for stable semantic cues.
+- It ships an opt-in perception landmark factor path and a point-cloud-to-CSV
+  extractor for stable geometric cues.
 - It gives LiDAR-SLAM users a concrete place to file reproduction reports.
 
 If these reproduction configs save you time, starring the repo helps other

@@ -54,6 +54,36 @@ stamp,class_id,landmark_id,x,y,z,cov_xx,cov_xy,cov_xz,cov_yx,cov_yy,cov_yz,cov_z
 Use `load_perception_observations_csv()` for files or streams. Comment lines
 starting with `#` and a header row are skipped.
 
+## Point Cloud Landmark Extraction
+
+`glil_cloud_landmark_extractor` converts a raw point cloud into the same CSV
+schema. It groups finite points into world-frame voxels, emits each dense voxel
+as one `cloud_landmark` observation, and assigns deterministic landmark IDs from
+the voxel coordinate. Passing the sensor pose with `--pose-xyzrpy` makes those
+IDs stable across frames that see the same world voxel.
+
+```bash
+glil_cloud_landmark_extractor \
+  --input scan.bin \
+  --format kitti-bin \
+  --stamp 12.3 \
+  --pose-xyzrpy 0 0 0 0 0 0 \
+  --voxel 1.0 \
+  --min-points 8 \
+  --max-landmarks 256 \
+  --output cloud_landmarks.csv
+```
+
+Supported input formats are GLIL/gtsam_points directories, ASCII PCD, XYZ text,
+KITTI float32 XYZI `.bin`, and compact float32 XYZ `.bin`. The extractor is not
+a semantic detector; it is a lightweight geometric frontend for smoke tests,
+repeatable ablations, and datasets where stable poles, signs, reflectors, or
+fiducial-like clusters can be isolated by range/voxel settings. Set `--class-id`
+when the output should pass a stricter `allowed_class_ids` filter.
+
+Use `--full-covariance` to write all nine covariance terms. Without it, the tool
+writes the compact diagonal covariance CSV accepted by the default loader.
+
 ## Global Mapping CSV Injector
 
 `libperception_csv_injector.so` is an optional extension module that loads the
@@ -142,11 +172,14 @@ Implemented now:
 - CSV/stream observation loading
 - `PerceptionFactorBuilder` for class filtering, robust loss wrapping, landmark
   initialization, and factor insertion
+- `CloudLandmarkExtractor` and `glil_cloud_landmark_extractor` for converting
+  real point clouds into perception-observation CSVs
 - `libperception_csv_injector.so` for optional global-mapping CSV factor
   injection
 - `config/sample_perception_observations.csv` for CSV injector smoke tests
 - a CTest smoke test that checks residuals, Jacobians, confidence-weighted noise,
-  CSV parsing, robust graph insertion, and landmark optimization
+  CSV parsing, cloud landmark extraction, robust graph insertion, and landmark
+  optimization
 
 Not implemented yet:
 
