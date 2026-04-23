@@ -37,6 +37,22 @@ mean playback is at least `0.95x`.
 GLIL CPU Reproduction Fork: reproducible LiDAR odometry configs for MegaParticles and Ouster smoke checks. 3/3 Track B+C PASS, outdoor_hard_01a RMSE 0.906313, and the hard recipe is 5/5 byte-identical.
 ```
 
+## Perception Readiness
+
+For perception-enabled runs, generate a compact readiness table and include it
+next to RMSE, playback, and trajectory hash evidence:
+
+```bash
+glil_perception_report_summary \
+  --report dataset_a=dataset_a/perception_report.csv \
+  --report dataset_b=dataset_b/perception_report.csv \
+  --format markdown \
+  --output perception_summary.md
+```
+
+This keeps accepted factor counts, rejected-observation reasons, and timestamp
+match rates visible before a run is promoted into the scoreboard.
+
 ## Reproduction Reports
 
 If you try another dataset, open a

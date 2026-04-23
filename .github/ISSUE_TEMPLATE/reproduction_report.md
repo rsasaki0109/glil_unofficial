@@ -31,6 +31,14 @@ assignees: ""
 - Fallback count:
 - Fatal errors or aborts:
 
+## Perception Readiness Optional
+
+- Perception workflow command:
+- Perception report summary:
+- Accepted observations:
+- Accepted timestamp match rate:
+- Rejected class / low-confidence counts:
+
 ## Notes
 
 Add the command, relevant log excerpt, or comparison target if available.

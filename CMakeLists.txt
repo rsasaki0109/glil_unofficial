@@ -240,7 +240,11 @@ if(BUILD_TOOLS)
     gtsam
   )
 
-  list(APPEND glil_TOOL_TARGETS glil_coreset_benchmark glil_cloud_landmark_extractor glil_perception_config_generator glil_perception_factor_report)
+  add_executable(glil_perception_report_summary
+    tools/summarize_perception_reports.cpp
+  )
+
+  list(APPEND glil_TOOL_TARGETS glil_coreset_benchmark glil_cloud_landmark_extractor glil_perception_config_generator glil_perception_factor_report glil_perception_report_summary)
 endif()
 
 ###########
@@ -282,6 +286,12 @@ if(BUILD_TESTING)
         --report-tool $<TARGET_FILE:glil_perception_factor_report>
         --report-format csv
         --allowed-class-ids pole,sign,reflector
+    )
+    add_test(
+      NAME perception_report_summary
+      COMMAND glil_perception_report_summary
+        --report sample=${CMAKE_CURRENT_SOURCE_DIR}/config/sample_perception_factor_report.csv
+        --format csv
     )
   endif()
 endif()
