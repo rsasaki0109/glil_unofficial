@@ -66,7 +66,11 @@
 
 ### Common parameters for sub and global mapping
 - **enable_imu** (default true) : Must be false if the LiDAR-only odometry estimation is used.
-- **registration_error_factor_type** (default "VGICP_GPU") : Registration error computation type. Must be either of *"VGICP"* or *"VGICP_GPU"*.
+- **registration_error_factor_type** (default "VGICP_GPU") : Registration error computation type. Use *"VGICP"* or *"VGICP_GPU"* for the standard paths, or *"VGICP_CORESET"* for the CPU exact-sampling path.
+- **coreset_target_size** (default 256 in GLIL configs) : Target number of selected residual rows for `VGICP_CORESET`; the implementation enforces the Fast-Caratheodory minimum of 29 rows.
+- **coreset_num_clusters** (default 64 in GLIL configs) : Cluster count used by Fast-Caratheodory coreset extraction.
+- **coreset_relinearize_thresh_trans / coreset_relinearize_thresh_rot** : Translation and rotation thresholds for deferred coreset re-extraction.
+- **coreset_method** (default `exact_caratheodory`) : `exact_caratheodory` for the main path, or diagnostic sampling modes such as `uniform_sample`, `uniform_sample_early`, and `residual_weighted`.
 - **random_sampling_rate** (default 1.0) : Random sampling rate for points used for registration error computation. With the GPU implementation, you can use a large random sampling rate (e.g., 1.0 = disabling random sampling) to perform full global registration error minimization.
 - **(submap|keyframe)_voxel_resolution** (default 0.5 m) : Base voxel resolution. Set a small value (e.g., 0.15 ~ 0.25 m) for indoor environments.
 - **(submap|keyframe)_voxelmap_levels** (default 2 levels) : Multi resolution voxel levels. Set this param to 2 or 3 for better convergence.

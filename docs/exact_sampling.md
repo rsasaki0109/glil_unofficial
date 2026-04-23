@@ -33,6 +33,8 @@ Implemented pieces in this fork:
 - Caratheodory-based row selection via the bundled `thirdparty/caratheodory2`
 - deferred coreset reuse thresholds
 - optional immutable coreset snapshots for deterministic debugging
+- `IntegratedVGICPCoresetFactor::coreset_stats()` for programmatic inspection of
+  selected residual rows, valid correspondences, weights, and extraction counts
 - per-frame coreset performance counters in `[perftime]` logs
 - CPU overlap estimation through `gtsam_points::FastOccupancyGrid` in the GLIL
   odometry path
@@ -49,6 +51,24 @@ Useful parameters:
 | `coreset_method` | exact or diagnostic sampling mode |
 | `occupancy_grid_resolution` | overlap grid resolution for keyframe decisions |
 
+## Diagnostics
+
+`IntegratedVGICPCoresetFactor::coreset_stats()` returns the current coreset
+state after a factor has been linearized. The values are intentionally compact so
+extensions and tests can check behavior without parsing logs:
+
+- `source_points`, `valid_correspondences`, `selected_points`, and
+  `selected_residual_rows` show how much the residual set was reduced.
+- `weight_sum`, `target_size`, `num_clusters`, and `method` describe the selected
+  coreset configuration.
+- `correspondence_update_count` and `coreset_extraction_count` make deferred
+  sampling behavior visible.
+
+The CTest target `integrated_vgicp_coreset_factor` builds a small synthetic
+Gaussian voxel map, linearizes a `VGICP_CORESET` factor, and checks that these
+stats are populated. This gives CI a direct smoke test for the ICRA2025 exact
+sampling path.
+
 ## Next Work
 
 The remaining engineering targets are:
@@ -57,6 +77,6 @@ The remaining engineering targets are:
   coreset sampling on the same submap pairs
 - a compact local occupancy bit-chunk grid fallback for environments where the
   `gtsam_points` helper is unavailable
-- CI smoke coverage for `VGICP_CORESET` parameters and debug counters
+- a stats-driven benchmark report for `VGICP_CORESET` parameters and debug counters
 - documentation of recommended settings for desktop CPU, Mini PC, and low-power
   embedded CPU runs

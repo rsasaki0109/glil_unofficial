@@ -211,6 +211,14 @@ if(BUILD_TESTING)
     glil
   )
   add_test(NAME perception_landmark_factor COMMAND test_perception_landmark_factor)
+
+  add_executable(test_integrated_vgicp_coreset_factor
+    tests/test_integrated_vgicp_coreset_factor.cpp
+  )
+  target_link_libraries(test_integrated_vgicp_coreset_factor
+    glil
+  )
+  add_test(NAME integrated_vgicp_coreset_factor COMMAND test_integrated_vgicp_coreset_factor)
 endif()
 
 #############

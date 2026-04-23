@@ -76,6 +76,23 @@ public:
     Eigen::VectorXd e_rows;
   };
 
+  struct CoresetStats {
+    bool valid = false;
+    bool immutable_snapshot = false;
+    int source_points = 0;
+    int valid_correspondences = 0;
+    int selected_residual_rows = 0;
+    int selected_points = 0;
+    int target_size = 0;
+    int num_clusters = 0;
+    int correspondence_update_count = 0;
+    int coreset_extraction_count = 0;
+    double weight_sum = 0.0;
+    double last_translation_norm = 0.0;
+    double last_rotation_deg = 0.0;
+    std::string method;
+  };
+
   /**
    * @brief Binary factor constructor
    */
@@ -105,6 +122,7 @@ public:
   gtsam::GaussianFactor::shared_ptr linearize(const gtsam::Values& values) const override;
 
   void set_num_threads(int n) { coreset_params.num_threads = n; }
+  CoresetStats coreset_stats() const;
 
 private:
   virtual void update_correspondences(const Eigen::Isometry3d& delta) const override;
@@ -153,6 +171,8 @@ private:
 
   // Debug verification counter
   mutable int debug_count = 0;
+  mutable int correspondence_update_count = 0;
+  mutable int coreset_extraction_count = 0;
 };
 
 }  // namespace glil

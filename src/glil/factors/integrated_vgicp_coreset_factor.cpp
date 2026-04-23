@@ -5,6 +5,7 @@
 #include <glil/factors/integrated_vgicp_coreset_factor.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <numeric>
 #include <random>
 #include <unordered_set>
@@ -113,9 +114,46 @@ IntegratedVGICPCoresetFactor::IntegratedVGICPCoresetFactor(const IntegratedVGICP
   last_coreset_delta.setIdentity();
   coreset_valid = false;
   debug_count = 0;
+  correspondence_update_count = 0;
+  coreset_extraction_count = 0;
 }
 
 IntegratedVGICPCoresetFactor::~IntegratedVGICPCoresetFactor() {}
+
+IntegratedVGICPCoresetFactor::CoresetStats IntegratedVGICPCoresetFactor::coreset_stats() const {
+  std::lock_guard<std::mutex> lock(coreset_mutex_);
+
+  CoresetStats stats;
+  stats.valid = coreset_valid;
+  stats.immutable_snapshot = coreset_params.coreset_immutable_snapshot;
+  stats.source_points = source ? point_size(*source) : 0;
+  stats.selected_residual_rows = static_cast<int>(coreset_indices.size());
+  stats.target_size = coreset_params.coreset_target_size;
+  stats.num_clusters = coreset_params.coreset_num_clusters;
+  stats.correspondence_update_count = correspondence_update_count;
+  stats.coreset_extraction_count = coreset_extraction_count;
+  stats.weight_sum = coreset_weights.size() > 0 ? coreset_weights.sum() : 0.0;
+  stats.method = coreset_params.coreset_method;
+
+  for (const auto* correspondence : correspondences) {
+    if (correspondence != nullptr) {
+      stats.valid_correspondences++;
+    }
+  }
+
+  std::unordered_set<int> selected_points;
+  selected_points.reserve(static_cast<std::size_t>(coreset_indices.size()));
+  for (int i = 0; i < coreset_indices.size(); i++) {
+    if (coreset_indices[i] >= 0) {
+      selected_points.insert(coreset_indices[i]);
+    }
+  }
+  stats.selected_points = static_cast<int>(selected_points.size());
+
+  stats.last_translation_norm = last_coreset_delta.translation().norm();
+  stats.last_rotation_deg = Eigen::AngleAxisd(last_coreset_delta.linear()).angle() * 180.0 / M_PI;
+  return stats;
+}
 
 gtsam::NonlinearFactor::shared_ptr IntegratedVGICPCoresetFactor::clone() const {
   return gtsam::NonlinearFactor::shared_ptr(new IntegratedVGICPCoresetFactor(*this));
@@ -166,6 +204,7 @@ void IntegratedVGICPCoresetFactor::update_correspondences_unlocked(const Eigen::
 #ifdef GLIL_PROFILE_TIMING
   perftime::ScopedTimer profile_update_corresp(perftime::Counter::UpdateCorresp);
 #endif
+  correspondence_update_count++;
   linearization_point = delta;
   coreset_valid = false;
   const int N = point_size(*source);
@@ -254,6 +293,7 @@ void IntegratedVGICPCoresetFactor::extract_coreset_unlocked(const Eigen::Isometr
 #ifdef GLIL_PROFILE_TIMING
   perftime::ScopedTimer profile_extract_coreset(perftime::Counter::ExtractCoreset);
 #endif
+  coreset_extraction_count++;
   const int N = point_size(*source);
 
   // Collect per-point Jacobians and residuals for valid correspondences
