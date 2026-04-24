@@ -24,6 +24,10 @@ PERCEPTION_METRIC_KEYS = (
     "injectable",
     "observations",
     "load_errors",
+    "load_warnings",
+    "warnings_duplicate_stamp_landmark",
+    "warnings_landmark_class_collision",
+    "warnings_degenerate_covariance",
     "accepted_observations",
     "accepted_rate",
     "rejected_low_confidence",
@@ -221,9 +225,9 @@ def render_markdown(runs: list[dict[str, Any]], *, baseline_label: str | None, a
     lines.append(f"generated at `{utc_now()}`; baseline label `{baseline_label or 'NA'}`")
     lines.append("")
     lines.append(
-        "| run | perception | status | RMSE (m) | ΔRMSE vs baseline | accepted obs | accepted match rate | rejected class | rejected low conf | unique landmarks |"
+        "| run | perception | status | RMSE (m) | ΔRMSE vs baseline | accepted obs | accepted match rate | rejected class | rejected low conf | unique landmarks | load warnings |"
     )
-    lines.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for run in runs:
         rmse = run["ape"].get("rmse")
         delta = None
@@ -231,7 +235,7 @@ def render_markdown(runs: list[dict[str, Any]], *, baseline_label: str | None, a
             delta = rmse - baseline_rmse
         p = run["perception"]
         lines.append(
-            "| {label} | {perception} | {status} | {rmse} | {delta} | {acc} | {match} | {rej_class} | {rej_conf} | {uniq} |".format(
+            "| {label} | {perception} | {status} | {rmse} | {delta} | {acc} | {match} | {rej_class} | {rej_conf} | {uniq} | {warn} |".format(
                 label=run["label"],
                 perception=perception_status(run),
                 status=run["status"],
@@ -242,6 +246,7 @@ def render_markdown(runs: list[dict[str, Any]], *, baseline_label: str | None, a
                 rej_class=p.get("rejected_class", "NA"),
                 rej_conf=p.get("rejected_low_confidence", "NA"),
                 uniq=p.get("accepted_unique_landmarks", p.get("unique_landmarks", "NA")),
+                warn=p.get("load_warnings", "NA"),
             )
         )
     lines.append("")
@@ -282,6 +287,10 @@ def render_csv(runs: list[dict[str, Any]], *, baseline_label: str | None) -> str
         "accepted_unique_landmarks",
         "observations",
         "matched_accepted_observations",
+        "load_warnings",
+        "warnings_duplicate_stamp_landmark",
+        "warnings_landmark_class_collision",
+        "warnings_degenerate_covariance",
         "ape_exists",
         "perception_exists",
         "errors",
@@ -312,6 +321,10 @@ def render_csv(runs: list[dict[str, Any]], *, baseline_label: str | None) -> str
                 "accepted_unique_landmarks": p.get("accepted_unique_landmarks"),
                 "observations": p.get("observations"),
                 "matched_accepted_observations": p.get("matched_accepted_observations"),
+                "load_warnings": p.get("load_warnings"),
+                "warnings_duplicate_stamp_landmark": p.get("warnings_duplicate_stamp_landmark"),
+                "warnings_landmark_class_collision": p.get("warnings_landmark_class_collision"),
+                "warnings_degenerate_covariance": p.get("warnings_degenerate_covariance"),
                 "ape_exists": run.get("ape_exists"),
                 "perception_exists": run.get("perception_exists"),
                 "errors": "; ".join(run["errors"]) or "",
