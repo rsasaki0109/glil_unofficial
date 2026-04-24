@@ -154,6 +154,7 @@ still exploratory:
 | CPU + CUDA Docker builds | CI-verified | matrix in `.github/workflows/build.yml` |
 | `VGICP_CORESET` exact-sampling factor | CI-verified (factor smoke + benchmark summary fixture) | real-cloud benchmark numbers are locally verified per user |
 | Coreset benchmark summary tool | CI-verified (fixture smoke) | synthetic fixture; real benchmarks still per user |
+| ICRA 2025 paper flatwall dataset | Partial spot-check (8/8 sequences, not a reproduction) | `0.711 m` avg ATE vs paper Proposed `0.190 m`; odometry-layer exact sampling and coreset tuning are explicit non-goals. See [flatwall spot-check](docs/exact_sampling.md#partial-flatwall-spot-check-all-8-sequences) |
 | Perception CSV injector end-to-end | Locally verified on `indoor_easy_01` | see `docs/perception_factors.md#real-run-example-indoor_easy_01`; runtime injection count depends on submap stamp alignment |
 | Perception run comparison tool | CI-verified (fixture smoke) + locally verified (real `indoor_easy_01` run) | comparison is honest about readiness vs runtime gap |
 | ROS/ROS 2 perception detector adapters | Not implemented | offline CSV is the only supported perception input today |
