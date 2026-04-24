@@ -23,9 +23,23 @@ struct PerceptionObservationCsvError {
   std::string text;
 };
 
+struct PerceptionObservationCsvWarning {
+  enum class Kind {
+    DuplicateStampLandmark,
+    LandmarkClassCollision,
+    DegenerateCovariance,
+  };
+  Kind kind = Kind::DuplicateStampLandmark;
+  std::size_t observation_index = 0;
+  std::uint64_t landmark_id = 0;
+  std::string class_id;
+  std::string message;
+};
+
 struct PerceptionObservationCsvLoadResult {
   std::vector<PerceptionObservation> observations;
   std::vector<PerceptionObservationCsvError> errors;
+  std::vector<PerceptionObservationCsvWarning> warnings;
 };
 
 bool parse_perception_observation_csv_row(

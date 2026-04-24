@@ -113,6 +113,47 @@ void test_csv_loader_and_builder() {
   expect_near(pending_values.at<gtsam::Point3>(L(7)), gtsam::Point3(12.0, 0.0, 0.0), 1e-12);
 }
 
+void test_csv_loader_warnings() {
+  const std::string csv =
+    "stamp,class_id,landmark_id,x,y,z,cov_xx,cov_yy,cov_zz,confidence\n"
+    "1.0,pole,7,2.0,0.0,0.0,0.04,0.04,0.09,0.8\n"
+    "1.0,pole,7,2.0,0.0,0.0,0.04,0.04,0.09,0.8\n"
+    "1.1,sign,7,2.1,0.0,0.0,0.04,0.04,0.09,0.7\n"
+    "1.2,pole,8,5.0,0.0,0.0,0.04,0.04,0.0,0.9\n";
+
+  std::istringstream input(csv);
+  const auto loaded = glil::load_perception_observations_csv(input);
+  assert(loaded.errors.empty());
+  assert(loaded.observations.size() == 4);
+
+  int duplicate_stamp = 0;
+  int class_collision = 0;
+  int degenerate_cov = 0;
+  for (const auto& warning : loaded.warnings) {
+    switch (warning.kind) {
+      case glil::PerceptionObservationCsvWarning::Kind::DuplicateStampLandmark:
+        duplicate_stamp++;
+        assert(warning.observation_index == 1);
+        assert(warning.landmark_id == 7);
+        break;
+      case glil::PerceptionObservationCsvWarning::Kind::LandmarkClassCollision:
+        class_collision++;
+        assert(warning.observation_index == 2);
+        assert(warning.landmark_id == 7);
+        assert(warning.class_id == "sign");
+        break;
+      case glil::PerceptionObservationCsvWarning::Kind::DegenerateCovariance:
+        degenerate_cov++;
+        assert(warning.observation_index == 3);
+        assert(warning.landmark_id == 8);
+        break;
+    }
+  }
+  assert(duplicate_stamp == 1);
+  assert(class_collision == 1);
+  assert(degenerate_cov == 1);
+}
+
 void test_cloud_landmark_extractor() {
   const std::vector<gtsam::Point3> world_points = {
     gtsam::Point3(0.10, 0.10, 0.10),
@@ -206,6 +247,7 @@ int main() {
   test_zero_error_and_jacobians();
   test_noise_from_observation();
   test_csv_loader_and_builder();
+  test_csv_loader_warnings();
   test_cloud_landmark_extractor();
   test_landmark_optimization();
   return 0;

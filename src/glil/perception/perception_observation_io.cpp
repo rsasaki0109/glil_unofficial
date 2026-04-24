@@ -3,9 +3,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace glil {
 namespace {
@@ -194,6 +197,56 @@ PerceptionObservationCsvLoadResult load_perception_observations_csv(std::istream
     }
 
     result.observations.push_back(observation);
+  }
+
+  struct LandmarkEntry {
+    std::string class_id;
+    std::size_t first_index = 0;
+  };
+  std::map<std::pair<double, std::uint64_t>, std::size_t> seen_stamps;
+  std::map<std::uint64_t, LandmarkEntry> landmark_classes;
+
+  for (std::size_t i = 0; i < result.observations.size(); ++i) {
+    const auto& obs = result.observations[i];
+
+    const auto stamp_key = std::make_pair(obs.stamp, obs.landmark_id);
+    const auto stamp_hit = seen_stamps.find(stamp_key);
+    if (stamp_hit != seen_stamps.end()) {
+      std::ostringstream message;
+      message << "duplicate (stamp, landmark_id) pair; first seen at observation " << stamp_hit->second;
+      result.warnings.push_back({PerceptionObservationCsvWarning::Kind::DuplicateStampLandmark, i, obs.landmark_id, obs.class_id, message.str()});
+    } else {
+      seen_stamps.emplace(stamp_key, i);
+    }
+
+    const auto class_hit = landmark_classes.find(obs.landmark_id);
+    if (class_hit != landmark_classes.end()) {
+      if (class_hit->second.class_id != obs.class_id) {
+        std::ostringstream message;
+        message << "landmark_id previously observed as class '" << class_hit->second.class_id << "' at observation " << class_hit->second.first_index;
+        result.warnings.push_back({PerceptionObservationCsvWarning::Kind::LandmarkClassCollision, i, obs.landmark_id, obs.class_id, message.str()});
+      }
+    } else {
+      landmark_classes.emplace(obs.landmark_id, LandmarkEntry{obs.class_id, i});
+    }
+
+    bool degenerate = false;
+    for (int k = 0; k < 3; ++k) {
+      const double variance = obs.covariance(k, k);
+      if (!std::isfinite(variance) || variance <= 0.0) {
+        degenerate = true;
+        break;
+      }
+    }
+    if (degenerate) {
+      result.warnings.push_back({
+        PerceptionObservationCsvWarning::Kind::DegenerateCovariance,
+        i,
+        obs.landmark_id,
+        obs.class_id,
+        "covariance diagonal has zero, negative, or non-finite values",
+      });
+    }
   }
 
   return result;
