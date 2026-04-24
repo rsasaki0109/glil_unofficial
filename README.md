@@ -23,6 +23,36 @@ CPU/CUDA Docker builds.
 | Official Ouster smoke path | `1122` pose rows, fallback `0`, bitset abort `0` |
 | Docker confidence | CPU matrix and CUDA images pass on `dev` |
 
+## 3 Commands To Try
+
+After `source colcon_ws/install/setup.bash`, these three scripted tools run from
+the repo root without any other setup and produce small, shareable tables:
+
+```bash
+# 1. Compare full VGICP / uniform / exact-Caratheodory on the bundled fixture.
+glil_coreset_benchmark_summary \
+  --csv sample=glil_unofficial/config/sample_coreset_benchmark.csv \
+  --format markdown
+
+# 2. Compare a baseline and perception-enabled run directory side by side.
+glil_perception_run_compare \
+  --run baseline=glil_unofficial/config/sample_perception_run_compare/baseline \
+  --run perception=glil_unofficial/config/sample_perception_run_compare/perception \
+  --format markdown
+
+# 3. Package a reproduction run directory into a shareable Markdown bundle.
+glil_reproduction_bundle \
+  --run-dir glil_unofficial/config/sample_reproduction_bundle \
+  --ape glil_unofficial/config/sample_reproduction_bundle/evo_ape.txt \
+  --benchmark-csv glil_unofficial/config/sample_reproduction_bundle/coreset_benchmark.csv \
+  --perception-report sample=glil_unofficial/config/sample_perception_factor_report.csv \
+  --git-commit sample-sha \
+  --format markdown
+```
+
+All three exit `0` on every CI run; see [Sample Outputs](#sample-outputs) for
+what they print.
+
 ## Start Here
 
 | If you want to... | Use this |
@@ -66,6 +96,67 @@ docker build \
   -t glil-unofficial:jammy-cuda-gcc \
   .
 ```
+
+## Sample Outputs
+
+### Coreset benchmark summary
+
+```text
+| run    | mode               | selected rows | row ratio | reuse us | reuse speedup vs baseline | rel_aug_error |
+|--------|--------------------|--------------:|----------:|---------:|--------------------------:|--------------:|
+| sample | full_vgicp         |         2,048 |    1.0000 | 14,150.0 |                      1.00 |     0.000e+00 |
+| sample | uniform_sample     |            64 |    0.0312 |  2,080.0 |                      6.80 |     1.280e-01 |
+| sample | exact_caratheodory |            64 |    0.0312 |    210.0 |                     67.38 |     4.800e-12 |
+```
+
+Full CSV fixture at `glil_unofficial/config/sample_coreset_benchmark.csv`.
+Details in [ICRA2025 Exact Sampling Notes](docs/exact_sampling.md#benchmark-summary-tool).
+
+### Perception on/off comparison (real `indoor_easy_01` run)
+
+```text
+| run        | perception | status | RMSE (m) | ΔRMSE vs baseline | accepted obs | accepted match rate |
+|------------|------------|--------|---------:|------------------:|-------------:|--------------------:|
+| baseline   | off        | PASS   | 1.019250 |          0.000000 |           NA |                  NA |
+| perception | on         | PASS   | 1.019281 |          0.000031 |            8 |        100.000000% |
+```
+
+ΔRMSE of `+31 µm` is below the mapping noise floor and the table is not an
+accuracy claim; see
+[Real-run example](docs/perception_factors.md#real-run-example-indoor_easy_01)
+for the honest writeup including the readiness vs runtime injection gap.
+
+### Reproduction bundle excerpt
+
+```text
+| field | value |
+|-------|-------|
+| status | PASS |
+| git commit | `a97ec89bd24a98bfd1a1fe494a7b21d1a89398b9` |
+| run directory | `results/latest_glim/outdoor_hard_01a_reproduce_20260421` |
+
+| label  | extracted metrics                                                                               |
+|--------|-------------------------------------------------------------------------------------------------|
+| evo_ape | max=2.692416, mean=0.796697, median=0.751121, rmse=0.906313, sse=2347.571431, std=0.432062    |
+```
+
+Full example in [Reproduction Bundle example](docs/reproduction.md#example-outdoor_hard_01a-reproduction).
+
+## Verification Status
+
+Each capability is marked so readers know what to trust right now and what is
+still exploratory:
+
+| Area | Status | Notes |
+|---|---|---|
+| MegaParticles APE reproduction (3 datasets) | CI-verified + locally verified | scoreboard in `docs/reproduction.md`, per-dataset `reproduction_bundle.md` under `results/latest_glim/*_reproduce_20260421/` |
+| Official Ouster sample smoke check | CI-verified | `1122` pose rows, fallback/bitset counters in scoreboard |
+| CPU + CUDA Docker builds | CI-verified | matrix in `.github/workflows/build.yml` |
+| `VGICP_CORESET` exact-sampling factor | CI-verified (factor smoke + benchmark summary fixture) | real-cloud benchmark numbers are locally verified per user |
+| Coreset benchmark summary tool | CI-verified (fixture smoke) | synthetic fixture; real benchmarks still per user |
+| Perception CSV injector end-to-end | Locally verified on `indoor_easy_01` | see `docs/perception_factors.md#real-run-example-indoor_easy_01`; runtime injection count depends on submap stamp alignment |
+| Perception run comparison tool | CI-verified (fixture smoke) + locally verified (real `indoor_easy_01` run) | comparison is honest about readiness vs runtime gap |
+| ROS/ROS 2 perception detector adapters | Not implemented | offline CSV is the only supported perception input today |
 
 ## Why Star This Fork
 
