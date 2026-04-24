@@ -195,23 +195,33 @@ Not implemented / explicit non-goals for this fork:
 - The paper's full mapping/loop-closure pipeline beyond what upstream GLIM
   already provides.
 
-### Partial flatwall spot-check (one sequence)
+### Partial flatwall spot-check (all 8 sequences)
 
 As a smoke check for the paper's flatwall dataset (Koide et al., ICRA 2025,
-Table I; LiDAR degeneration test, Livox Avia), a single sequence was run with
-our fork using `VGICP_CORESET` in sub + global mapping and the upstream Livox
-config elsewhere:
+Table I; LiDAR degeneration test, Livox Avia, CC-BY-4.0 from Zenodo record
+`7641866`), the full 8-sequence set was run with this fork using
+`VGICP_CORESET` in sub + global mapping and the upstream Livox config
+elsewhere:
 
 | sequence | our fork | paper Proposed | paper GLIM | paper FLIO | paper VoxelMap | paper SLICT |
 |---|---:|---:|---:|---:|---:|---:|
 | `flatwall_01` | `0.650` | `0.424` | `0.118` | `0.815` | `0.577` | `0.947` |
+| `flatwall_02` | `1.145` | `0.092` | `0.299` | `0.822` | `0.146` | `0.331` |
+| `flatwall_03` | `0.652` | `0.114` | `0.040` | `0.873` | `0.950` | `1.088` |
+| `flatwall_04` | `0.890` | `0.448` | `0.389` | `1.137` | `0.586` | `0.729` |
+| `flatwall_05` | `0.851` | `0.311` | `0.228` | `1.048` | `0.786` | `0.747` |
+| `flatwall_06` | `0.563` | `0.068` | `0.056` | `15.551` | `0.507` | `0.311` |
+| `flatwall_07` | `0.511` | `0.014` | `0.017` | `0.635` | `0.366` | `0.659` |
+| `flatwall_08` | `0.425` | `0.045` | `0.146` | `0.297` | `0.279` | `0.983` |
+| **Average** | **`0.711`** | **`0.190`** | **`0.162`** | **`2.647`** | **`0.562`** | **`0.724`** |
 
-Our fork's `0.650 m` is `+0.226 m` worse than the paper's `Proposed` number and
-`+0.532 m` worse than the paper's `GLIM` baseline on this one sequence. This is
-**not a paper reproduction claim** and is recorded here only to make the delta
-between this fork and the paper concrete. Dataset is CC-BY-4.0 from Zenodo
-record `7641866`; raw artifacts live under
-`results/flatwall_experiment_20260424/` in this workspace.
+Our fork averages `0.711 m` ATE across the 8 sequences, `~3.7x` the paper's
+`Proposed` average and `~4.4x` the paper's `GLIM` average. It lands between
+the paper's `SLICT` (`0.724 m`, slightly worse than ours) and `VoxelMap`
+(`0.562 m`, slightly better). This is **not a paper reproduction claim** and
+is recorded here only to make the delta between this fork and the paper
+concrete. Raw run artifacts (bag conversion, config, per-sequence evo_ape,
+bundle) live under `results/flatwall_experiment_20260424/` in this workspace.
 
 The gap comes from at least three sources, all of which are out of scope for
 this fork:
@@ -220,21 +230,21 @@ this fork:
   mapping. This fork keeps standard CPU GICP at odometry because
   `OdometryEstimationGLIL` is unstable in this tree; sub and global mapping
   are the only layers that exercise `VGICP_CORESET` in this run.
-- Coreset parameter tuning. The run uses the default `coreset_target_size`,
+- Coreset parameter tuning. The runs use the default `coreset_target_size`,
   `coreset_num_clusters`, and `coreset_relinearize_thresh_*` that ship with
   the factor. The paper's tuning is not reproduced.
-- Single-sequence, no averaging. The paper reports an average over 8
-  sequences; this spot-check covers only `flatwall_01`.
+- Single-run per sequence. The paper does not document the seed or repeat
+  protocol, so per-run variance is not controlled here.
 
 Closing the gap would require:
 
-1. Downloading all 8 flatwall sequences (`flatwall_01..08`, ~1 GB total).
-2. Stabilizing the `OdometryEstimationGLIL` path so exact sampling applies at
+1. Stabilizing the `OdometryEstimationGLIL` path so exact sampling applies at
    odometry as well.
-3. Sweeping coreset hyperparameters against the paper's reported numbers.
+2. Sweeping coreset hyperparameters against the paper's reported numbers.
+3. Repeating across sequences with seeds to bound run-to-run variance.
 
-These remain explicit non-goals for this fork, so the entry above should be
-read as a spot-check and not a scoreboard row.
+These remain explicit non-goals for this fork, so the table above should be
+read as a partial spot-check and not a scoreboard row.
 
 ## Next Work
 
