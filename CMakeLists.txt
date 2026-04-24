@@ -66,6 +66,8 @@ add_library(glil SHARED
   src/glil/perception/perception_factor_builder.cpp
   src/glil/perception/perception_observation_io.cpp
   src/glil/perception/cloud_landmark_extractor.cpp
+  # gnss
+  src/glil/gnss/gnss_observation_io.cpp
   # util
   src/glil/util/config.cpp
   src/glil/util/logging.cpp
@@ -166,6 +168,14 @@ target_link_libraries(perception_csv_injector
   glil
 )
 list(APPEND glil_LIBRARIES perception_csv_injector)
+
+add_library(gnss_prior_injector SHARED
+  src/glil/gnss/gnss_prior_injector.cpp
+)
+target_link_libraries(gnss_prior_injector
+  glil
+)
+list(APPEND glil_LIBRARIES gnss_prior_injector)
 
 
 if(BUILD_WITH_VIEWER)
@@ -268,6 +278,14 @@ if(BUILD_TESTING)
     glil
   )
   add_test(NAME integrated_vgicp_coreset_factor COMMAND test_integrated_vgicp_coreset_factor)
+
+  add_executable(test_gnss_observation
+    tests/test_gnss_observation.cpp
+  )
+  target_link_libraries(test_gnss_observation
+    glil
+  )
+  add_test(NAME gnss_observation COMMAND test_gnss_observation)
 
   if(BUILD_TOOLS)
     add_test(

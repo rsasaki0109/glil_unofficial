@@ -1,0 +1,26 @@
+{
+  /*** GNSS prior injector extension ***
+  // Loose-coupled GNSS position prior.
+  // To enable this module, add "libgnss_prior_injector.so" to
+  // glil_ros/extension_modules in config_ros.json and set enabled=true.
+  //
+  // The CSV must contain position observations pre-projected to a local
+  // navigation frame (e.g. ENU) in meters. Two shapes are accepted:
+  //   stamp,x,y,z,sigma                     (isotropic sigma, meters)
+  //   stamp,x,y,z,sigma_x,sigma_y,sigma_z   (per-axis sigma, meters)
+  //
+  // A gtsam::GPSFactor prior is inserted for each submap pose whose origin
+  // stamp falls within time_tolerance of a GNSS observation. consume_once
+  // prevents the same GNSS observation from constraining two submaps.
+  */
+  "gnss_prior_injector": {
+    "enabled": false,
+    "csv_path": "",
+    "time_tolerance": 0.05,
+    "consume_once": true,
+    "skip_header": true,
+    "skip_invalid_rows": false,
+    "fail_on_load_error": false,
+    "min_sigma": 0.001
+  }
+}

@@ -73,6 +73,7 @@ what they print.
 | Report perception CSV factor readiness | `glil_perception_factor_report --csv cloud_landmarks.csv --config-root run_config` |
 | Wire an existing perception CSV into GLIL config | `glil_perception_config_generator --config-root run_config --csv cloud_landmarks.csv` |
 | Try perception landmark factors | [Perception Factors](docs/perception_factors.md) |
+| Wire in a loose-coupled GNSS prior | [GNSS Factors](docs/gnss_factors.md) |
 | Report your own run | [Reproduction report issue](https://github.com/rsasaki0109/glil_unofficial/issues/new?template=reproduction_report.md) |
 
 ## Run A Docker Build
@@ -158,6 +159,7 @@ still exploratory:
 | Perception CSV injector end-to-end | Locally verified on `indoor_easy_01` | see `docs/perception_factors.md#real-run-example-indoor_easy_01`; runtime injection count depends on submap stamp alignment |
 | Perception run comparison tool | CI-verified (fixture smoke) + locally verified (real `indoor_easy_01` run) | comparison is honest about readiness vs runtime gap |
 | ROS/ROS 2 perception detector adapters | Not implemented | offline CSV is the only supported perception input today |
+| Loose-coupled GNSS prior injector | CI-verified (unit test on CSV parse + GPSFactor construction) | `gtsam::GPSFactor` prior per submap pose; CSV must be pre-projected to a local Cartesian frame. See [GNSS Factors](docs/gnss_factors.md) |
 
 ## Why Star This Fork
 
