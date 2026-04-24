@@ -195,6 +195,47 @@ Not implemented / explicit non-goals for this fork:
 - The paper's full mapping/loop-closure pipeline beyond what upstream GLIM
   already provides.
 
+### Partial flatwall spot-check (one sequence)
+
+As a smoke check for the paper's flatwall dataset (Koide et al., ICRA 2025,
+Table I; LiDAR degeneration test, Livox Avia), a single sequence was run with
+our fork using `VGICP_CORESET` in sub + global mapping and the upstream Livox
+config elsewhere:
+
+| sequence | our fork | paper Proposed | paper GLIM | paper FLIO | paper VoxelMap | paper SLICT |
+|---|---:|---:|---:|---:|---:|---:|
+| `flatwall_01` | `0.650` | `0.424` | `0.118` | `0.815` | `0.577` | `0.947` |
+
+Our fork's `0.650 m` is `+0.226 m` worse than the paper's `Proposed` number and
+`+0.532 m` worse than the paper's `GLIM` baseline on this one sequence. This is
+**not a paper reproduction claim** and is recorded here only to make the delta
+between this fork and the paper concrete. Dataset is CC-BY-4.0 from Zenodo
+record `7641866`; raw artifacts live under
+`results/flatwall_experiment_20260424/` in this workspace.
+
+The gap comes from at least three sources, all of which are out of scope for
+this fork:
+
+- Odometry layer. The paper uses exact sampling in both odometry and global
+  mapping. This fork keeps standard CPU GICP at odometry because
+  `OdometryEstimationGLIL` is unstable in this tree; sub and global mapping
+  are the only layers that exercise `VGICP_CORESET` in this run.
+- Coreset parameter tuning. The run uses the default `coreset_target_size`,
+  `coreset_num_clusters`, and `coreset_relinearize_thresh_*` that ship with
+  the factor. The paper's tuning is not reproduced.
+- Single-sequence, no averaging. The paper reports an average over 8
+  sequences; this spot-check covers only `flatwall_01`.
+
+Closing the gap would require:
+
+1. Downloading all 8 flatwall sequences (`flatwall_01..08`, ~1 GB total).
+2. Stabilizing the `OdometryEstimationGLIL` path so exact sampling applies at
+   odometry as well.
+3. Sweeping coreset hyperparameters against the paper's reported numbers.
+
+These remain explicit non-goals for this fork, so the entry above should be
+read as a spot-check and not a scoreboard row.
+
 ## Next Work
 
 The remaining engineering targets are:
