@@ -54,6 +54,83 @@ stamp,class_id,landmark_id,x,y,z,cov_xx,cov_xy,cov_xz,cov_yx,cov_yy,cov_yz,cov_z
 Use `load_perception_observations_csv()` for files or streams. Comment lines
 starting with `#` and a header row are skipped.
 
+### Base Columns (v1 schema)
+
+| column | required | meaning |
+|---|---|---|
+| `stamp` | yes | sensor timestamp in seconds; must be sortable in ascending order |
+| `class_id` | yes | semantic label (e.g. `pole`, `sign`, `reflector`, `fiducial`) |
+| `landmark_id` | yes | stable integer ID for the same world-frame landmark across observations |
+| `x`, `y`, `z` | yes | measurement in the sensor/body frame, meters |
+| `cov_xx`, `cov_yy`, `cov_zz` | yes | diagonal of the 3x3 measurement covariance |
+| `cov_xy`, `cov_xz`, `cov_yx`, `cov_yz`, `cov_zx`, `cov_zy` | optional | off-diagonal terms when the full 3x3 covariance layout is used |
+| `confidence` | yes | frontend confidence in `[0, 1]` |
+
+Any CSV that matches either the diagonal or full-covariance row shape above is
+considered v1-compatible and will stay loadable across fork releases.
+
+### Forward-Compatible Optional Columns
+
+The loader is tolerant of additional headers so that detector pipelines can
+record richer metadata without breaking older tools. Writers may emit these
+optional columns in any position, and the current loader ignores them; future
+parser modes (see below) will start consuming them. If you produce a perception
+CSV today and want it to stay future-proof, prefer these column names:
+
+| column | planned meaning |
+|---|---|
+| `schema_version` | integer or semver tag (`1`, `2`, `2.1`) so the loader can pick a mode automatically |
+| `sensor_frame_id` | frame id of the observation when the run has multiple sensors (defaults to the main LiDAR frame when absent) |
+| `detection_score` | raw detector confidence, separate from `confidence` if the pipeline fuses multiple scores |
+| `tracking_score` | tracker-level confidence for the same `landmark_id` across time |
+| `track_age` | number of frames the detector has associated with this `landmark_id` |
+| `source` | free-form string identifying the detector or extractor that produced the row |
+
+New columns beyond this list are allowed; the loader simply skips unknown
+headers rather than failing.
+
+### Parse Modes (current and planned)
+
+The loader has two behaviors today:
+
+- **Default (permissive) mode** accepts a missing or present header row, skips
+  comment lines starting with `#`, and accepts the diagonal or full-covariance
+  schema. Invalid rows trigger a loader warning but the remaining rows still
+  become observations when `skip_invalid_rows=true` in
+  `config_perception.json`.
+- **Fail-fast mode** is activated by setting `fail_on_load_error=true` in
+  `config_perception.json`; loading aborts on the first invalid row.
+
+Planned (P3) modes, tracked for the next parser update so writers can start
+preparing now:
+
+- **Strict mode**: reject rows whose `schema_version` declares a column set
+  the loader does not know, and fail on unknown `class_id` when an allow-list
+  is set with a mandatory-match flag.
+- **Permissive mode (enhanced)**: widen tolerance to cover misordered optional
+  columns, mismatched decimal separators, and to emit a structured warning
+  per invalid row.
+
+The current CSV is forward-compatible with both planned modes because the
+optional columns listed above are already reserved names.
+
+### Data Integrity Warnings (planned)
+
+The loader currently de-duplicates by `(stamp, landmark_id)` implicitly through
+`consume_once`. Planned explicit warnings will call out:
+
+- repeated `(stamp, landmark_id)` pairs (likely duplicate detector emissions)
+- the same `landmark_id` used with two different `class_id` values (detector
+  track-ID collision)
+- covariance diagonals that are zero, negative, or implausibly small relative
+  to `min_sigma`
+- covariance matrices that are not positive-definite when the full 3x3 layout
+  is used
+
+Until those warnings ship, these conditions are silently accepted and will
+produce weak or degenerate factors at runtime. Keep detector outputs clean at
+the writer side when possible.
+
 ## Point Cloud Landmark Extraction
 
 `glil_cloud_landmark_extractor` converts a raw point cloud into the same CSV
