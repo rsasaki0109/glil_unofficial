@@ -69,6 +69,13 @@ struct MatchStats {
   std::set<std::size_t> accepted_covered_submaps;
 };
 
+struct WarningStats {
+  std::size_t total = 0;
+  std::size_t duplicate_stamp_landmark = 0;
+  std::size_t landmark_class_collision = 0;
+  std::size_t degenerate_covariance = 0;
+};
+
 struct ReportStats {
   std::size_t total_observations = 0;
   std::size_t load_errors = 0;
@@ -83,6 +90,7 @@ struct ReportStats {
   std::vector<double> covariance_diagonal;
   std::vector<double> factor_sigmas;
   MatchStats matches;
+  WarningStats warnings;
 };
 
 void print_help(const char* argv0) {
@@ -432,6 +440,21 @@ ReportStats build_report(const Options& options, const glil::PerceptionObservati
   stats.matches.enabled = !submap_stamps.empty();
   stats.matches.submap_stamps = submap_stamps.size();
 
+  stats.warnings.total = loaded.warnings.size();
+  for (const auto& warning : loaded.warnings) {
+    switch (warning.kind) {
+      case glil::PerceptionObservationCsvWarning::Kind::DuplicateStampLandmark:
+        stats.warnings.duplicate_stamp_landmark++;
+        break;
+      case glil::PerceptionObservationCsvWarning::Kind::LandmarkClassCollision:
+        stats.warnings.landmark_class_collision++;
+        break;
+      case glil::PerceptionObservationCsvWarning::Kind::DegenerateCovariance:
+        stats.warnings.degenerate_covariance++;
+        break;
+    }
+  }
+
   for (const auto& obs : loaded.observations) {
     stats.total_observations++;
     stats.landmarks.insert(obs.landmark_id);
@@ -539,6 +562,10 @@ void write_markdown_report(std::ostream& output, const Options& options, const R
   output << "| Injectable | " << yes_no(injectable) << " |\n";
   output << "| Observations | " << stats.total_observations << " |\n";
   output << "| Load errors | " << stats.load_errors << " |\n";
+  output << "| Load warnings | " << stats.warnings.total << " |\n";
+  output << "| Warning: duplicate_stamp_landmark | " << stats.warnings.duplicate_stamp_landmark << " |\n";
+  output << "| Warning: landmark_class_collision | " << stats.warnings.landmark_class_collision << " |\n";
+  output << "| Warning: degenerate_covariance | " << stats.warnings.degenerate_covariance << " |\n";
   output << "| Accepted observations | " << stats.accepted_observations << " |\n";
   output << "| Accepted rate | " << format_rate(stats.accepted_observations, stats.total_observations) << " |\n";
   output << "| Rejected low confidence | " << stats.rejected_low_confidence << " |\n";
@@ -589,6 +616,10 @@ void write_csv_report(std::ostream& output, const Options& options, const Report
   write_csv_metric(output, "injectable", yes_no(injectable));
   write_csv_metric(output, "observations", std::to_string(stats.total_observations));
   write_csv_metric(output, "load_errors", std::to_string(stats.load_errors));
+  write_csv_metric(output, "load_warnings", std::to_string(stats.warnings.total));
+  write_csv_metric(output, "warnings_duplicate_stamp_landmark", std::to_string(stats.warnings.duplicate_stamp_landmark));
+  write_csv_metric(output, "warnings_landmark_class_collision", std::to_string(stats.warnings.landmark_class_collision));
+  write_csv_metric(output, "warnings_degenerate_covariance", std::to_string(stats.warnings.degenerate_covariance));
   write_csv_metric(output, "accepted_observations", std::to_string(stats.accepted_observations));
   write_csv_metric(output, "accepted_rate", format_rate(stats.accepted_observations, stats.total_observations));
   write_csv_metric(output, "rejected_low_confidence", std::to_string(stats.rejected_low_confidence));

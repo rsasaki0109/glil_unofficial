@@ -124,6 +124,31 @@ public:
     std::sort(observations_.begin(), observations_.end(), [](const auto& lhs, const auto& rhs) { return lhs.stamp < rhs.stamp; });
     consumed_.assign(observations_.size(), false);
 
+    if (!loaded.warnings.empty()) {
+      std::size_t duplicate_stamp = 0;
+      std::size_t class_collision = 0;
+      std::size_t degenerate_cov = 0;
+      for (const auto& warning : loaded.warnings) {
+        switch (warning.kind) {
+          case PerceptionObservationCsvWarning::Kind::DuplicateStampLandmark:
+            duplicate_stamp++;
+            break;
+          case PerceptionObservationCsvWarning::Kind::LandmarkClassCollision:
+            class_collision++;
+            break;
+          case PerceptionObservationCsvWarning::Kind::DegenerateCovariance:
+            degenerate_cov++;
+            break;
+        }
+      }
+      logger_->warn(
+        "perception CSV loader emitted {} warnings: duplicate_stamp_landmark={} landmark_class_collision={} degenerate_covariance={}",
+        loaded.warnings.size(),
+        duplicate_stamp,
+        class_collision,
+        degenerate_cov);
+    }
+
     logger_->info(
       "perception CSV injector loaded {} observations from {} tolerance={}s consume_once={}",
       observations_.size(),
