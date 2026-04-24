@@ -154,6 +154,47 @@ dataset configurations. Use `--strict` to fail a CI step when the baseline row
 is missing or the exact mode exceeds `--exact-error-threshold` (default
 `1e-3`).
 
+## Reproduction Scope
+
+The items below separate what directly tracks the ICRA 2025 paper from what is
+a bridge/demo piece and what is open future work, so readers do not mistake the
+repo for a full re-implementation of the paper's SLAM pipeline.
+
+Directly tracked from the paper ("reproduction targets"):
+
+- Fast-Caratheodory row selection for VGICP residuals
+  (`glil::IntegratedVGICPCoresetFactor`, bundled `thirdparty/caratheodory2`).
+- Augmented Hessian preservation as the correctness gate: the
+  `exact_caratheodory` mode must reach the same `H`/`b`/`c` as `full_vgicp`
+  up to floating-point precision (enforced by the benchmark summary tool's
+  `--exact-error-threshold`).
+- Deferred coreset reuse with immutable snapshots, including the
+  `coreset_relinearize_thresh_*` thresholds that gate re-extraction.
+- `VGICP_CORESET` as an opt-in registration error factor type in GLIM's
+  odometry and global mapping paths through the GLIL fork.
+
+Bridge / demo (inspired by the paper but not a 1:1 re-implementation):
+
+- Synthetic Gaussian voxel benchmarks used by CTest and the sample fixture;
+  they exercise the coreset path but are not the paper's datasets.
+- Real-cloud benchmark inputs via `glil_coreset_benchmark --target-cloud ...
+  --source-cloud ...`. These let users run the benchmark on their own data
+  but the repo does not ship the exact point clouds used in the paper.
+- `CloudLandmarkExtractor` and `glil_cloud_landmark_extractor` for
+  geometry-based perception observation CSVs. Useful as a placeholder for
+  a detector pipeline, but it is not a semantic detector and the paper does
+  not rely on perception landmark factors.
+
+Not implemented / explicit non-goals for this fork:
+
+- A complete re-run of the paper's headline accuracy numbers on the paper's
+  own datasets. This fork's reproduction scoreboard uses the MegaParticles
+  bags, not the ICRA paper's evaluation set.
+- Paper-table-level reporting (per-dataset coreset statistics, ablation
+  tables). The benchmark summary tool is intentionally a single-run view.
+- The paper's full mapping/loop-closure pipeline beyond what upstream GLIM
+  already provides.
+
 ## Next Work
 
 The remaining engineering targets are:

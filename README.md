@@ -166,7 +166,11 @@ still exploratory:
   of asking users to infer results from raw logs.
 - It includes CPU and CUDA Docker build checks so dependency drift is visible.
 - It exposes `VGICP_CORESET` exact-sampling diagnostics for CPU registration
-  factor experiments.
+  factor experiments. The fork tracks the Fast-Caratheodory row selection and
+  augmented-Hessian preservation ideas from Koide et al., ICRA 2025; it does
+  not attempt to re-run the paper's headline accuracy on the paper's own
+  datasets, and `docs/exact_sampling.md#reproduction-scope` spells out exactly
+  what is a paper-reproduction target versus a bridge/demo piece.
 - It includes synthetic and real-cloud coreset benchmarks for comparing full
   VGICP, uniform sampling, and Fast-Caratheodory row selection, plus a
   summary tool that turns the benchmark CSV into a baseline-relative table.
