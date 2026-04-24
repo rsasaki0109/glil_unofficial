@@ -8,6 +8,8 @@
 #include <map>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace glil {
@@ -68,6 +70,127 @@ bool looks_like_header(const std::vector<std::string>& tokens) {
   std::string first = tokens.front();
   std::transform(first.begin(), first.end(), first.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return first == "stamp" || first == "time" || first == "timestamp";
+}
+
+std::string to_lower(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return value;
+}
+
+struct HeaderSchema {
+  enum class CovarianceLayout { None, Diagonal, Full };
+
+  bool valid = false;
+  CovarianceLayout covariance_layout = CovarianceLayout::None;
+  std::unordered_map<std::string, std::size_t> column_index;
+};
+
+HeaderSchema build_header_schema(const std::vector<std::string>& tokens) {
+  HeaderSchema schema;
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    const std::string name = to_lower(tokens[i]);
+    if (name.empty()) {
+      continue;
+    }
+    schema.column_index.emplace(name, i);
+  }
+
+  static const std::unordered_set<std::string> kRequiredBase = {"stamp", "class_id", "landmark_id", "x", "y", "z", "confidence"};
+  for (const auto& name : kRequiredBase) {
+    if (schema.column_index.find(name) == schema.column_index.end()) {
+      return schema;
+    }
+  }
+
+  static const std::unordered_set<std::string> kDiagCov = {"cov_xx", "cov_yy", "cov_zz"};
+  static const std::unordered_set<std::string> kFullCov = {"cov_xx", "cov_xy", "cov_xz", "cov_yx", "cov_yy", "cov_yz", "cov_zx", "cov_zy", "cov_zz"};
+
+  const bool has_full = std::all_of(kFullCov.begin(), kFullCov.end(), [&](const std::string& key) { return schema.column_index.count(key) != 0; });
+  const bool has_diag = std::all_of(kDiagCov.begin(), kDiagCov.end(), [&](const std::string& key) { return schema.column_index.count(key) != 0; });
+
+  if (has_full) {
+    schema.covariance_layout = HeaderSchema::CovarianceLayout::Full;
+    schema.valid = true;
+  } else if (has_diag) {
+    schema.covariance_layout = HeaderSchema::CovarianceLayout::Diagonal;
+    schema.valid = true;
+  }
+  return schema;
+}
+
+bool parse_observation_by_header(
+  const std::vector<std::string>& tokens,
+  const HeaderSchema& schema,
+  PerceptionObservation& observation,
+  std::string* error_message) {
+  const auto lookup = [&](const std::string& key, std::string* out_value) {
+    const auto it = schema.column_index.find(key);
+    if (it == schema.column_index.end() || it->second >= tokens.size()) {
+      return false;
+    }
+    *out_value = tokens[it->second];
+    return true;
+  };
+
+  std::string text;
+
+  if (!lookup("stamp", &text) || !parse_double(text, observation.stamp)) {
+    if (error_message) *error_message = "invalid stamp";
+    return false;
+  }
+  if (!lookup("class_id", &observation.class_id) || observation.class_id.empty()) {
+    if (error_message) *error_message = "missing class_id";
+    return false;
+  }
+  if (!lookup("landmark_id", &text) || !parse_uint64(text, observation.landmark_id)) {
+    if (error_message) *error_message = "invalid landmark_id";
+    return false;
+  }
+
+  static const char* kAxes[] = {"x", "y", "z"};
+  for (int i = 0; i < 3; ++i) {
+    double value = 0.0;
+    if (!lookup(kAxes[i], &text) || !parse_double(text, value)) {
+      if (error_message) *error_message = "invalid position column";
+      return false;
+    }
+    observation.position_sensor[i] = value;
+  }
+
+  observation.covariance.setZero();
+  if (schema.covariance_layout == HeaderSchema::CovarianceLayout::Full) {
+    static const char* kFullKeys[3][3] = {
+      {"cov_xx", "cov_xy", "cov_xz"},
+      {"cov_yx", "cov_yy", "cov_yz"},
+      {"cov_zx", "cov_zy", "cov_zz"},
+    };
+    for (int row = 0; row < 3; ++row) {
+      for (int col = 0; col < 3; ++col) {
+        double value = 0.0;
+        if (!lookup(kFullKeys[row][col], &text) || !parse_double(text, value)) {
+          if (error_message) *error_message = "invalid full covariance column";
+          return false;
+        }
+        observation.covariance(row, col) = value;
+      }
+    }
+  } else {
+    static const char* kDiagKeys[] = {"cov_xx", "cov_yy", "cov_zz"};
+    for (int i = 0; i < 3; ++i) {
+      double value = 0.0;
+      if (!lookup(kDiagKeys[i], &text) || !parse_double(text, value)) {
+        if (error_message) *error_message = "invalid diagonal covariance column";
+        return false;
+      }
+      observation.covariance(i, i) = value;
+    }
+  }
+
+  if (!lookup("confidence", &text) || !parse_double(text, observation.confidence)) {
+    if (error_message) *error_message = "invalid confidence";
+    return false;
+  }
+  return true;
 }
 
 }  // namespace
@@ -163,6 +286,7 @@ PerceptionObservationCsvLoadResult load_perception_observations_csv(std::istream
   std::string line;
   std::size_t line_number = 0;
   bool first_data_row = true;
+  HeaderSchema header_schema;
   while (std::getline(input, line)) {
     line_number++;
 
@@ -174,13 +298,24 @@ PerceptionObservationCsvLoadResult load_perception_observations_csv(std::istream
     const std::vector<std::string> tokens = split_csv_line(stripped, options.delimiter);
     if (options.skip_header && first_data_row && looks_like_header(tokens)) {
       first_data_row = false;
+      HeaderSchema detected = build_header_schema(tokens);
+      if (detected.valid) {
+        header_schema = std::move(detected);
+      }
       continue;
     }
     first_data_row = false;
 
     PerceptionObservation observation;
     std::string error;
-    if (!parse_perception_observation_csv_row(stripped, observation, &error, options.delimiter)) {
+    bool parse_ok = false;
+    if (header_schema.valid) {
+      parse_ok = parse_observation_by_header(tokens, header_schema, observation, &error);
+    } else {
+      parse_ok = parse_perception_observation_csv_row(stripped, observation, &error, options.delimiter);
+    }
+
+    if (!parse_ok) {
       result.errors.push_back({line_number, error, line});
       if (!options.skip_invalid_rows) {
         break;

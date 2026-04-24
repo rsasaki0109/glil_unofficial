@@ -154,6 +154,59 @@ void test_csv_loader_warnings() {
   assert(degenerate_cov == 1);
 }
 
+void test_csv_loader_v2_header() {
+  // Same observations expressed twice: v1 positional schema vs v2 header with
+  // optional schema_version / sensor_frame_id / detection_score / track_age /
+  // source columns plus an unknown `extra_metadata` column. Both shapes must
+  // produce identical observations so writers can move to v2 without breaking
+  // existing consumers.
+  const std::string v1 =
+    "stamp,class_id,landmark_id,x,y,z,cov_xx,cov_yy,cov_zz,confidence\n"
+    "1.0,pole,7,2.0,0.0,0.0,0.04,0.04,0.09,0.8\n"
+    "1.1,sign,8,2.1,0.0,0.0,0.04,0.04,0.09,0.9\n";
+  const std::string v2 =
+    "schema_version,stamp,class_id,landmark_id,sensor_frame_id,x,y,z,cov_xx,cov_yy,cov_zz,"
+    "confidence,detection_score,tracking_score,track_age,source,extra_metadata\n"
+    "2,1.0,pole,7,lidar_front,2.0,0.0,0.0,0.04,0.04,0.09,0.8,0.85,0.7,3,tracker_a,freeform\n"
+    "2,1.1,sign,8,lidar_front,2.1,0.0,0.0,0.04,0.04,0.09,0.9,0.88,0.72,5,tracker_a,freeform\n";
+
+  std::istringstream v1_input(v1);
+  std::istringstream v2_input(v2);
+  const auto loaded_v1 = glil::load_perception_observations_csv(v1_input);
+  const auto loaded_v2 = glil::load_perception_observations_csv(v2_input);
+  assert(loaded_v1.errors.empty());
+  assert(loaded_v2.errors.empty());
+  assert(loaded_v1.observations.size() == 2);
+  assert(loaded_v2.observations.size() == 2);
+
+  for (std::size_t i = 0; i < 2; ++i) {
+    const auto& a = loaded_v1.observations[i];
+    const auto& b = loaded_v2.observations[i];
+    assert(std::abs(a.stamp - b.stamp) < 1e-12);
+    assert(a.class_id == b.class_id);
+    assert(a.landmark_id == b.landmark_id);
+    for (int axis = 0; axis < 3; ++axis) {
+      assert(std::abs(a.position_sensor[axis] - b.position_sensor[axis]) < 1e-12);
+      assert(std::abs(a.covariance(axis, axis) - b.covariance(axis, axis)) < 1e-12);
+    }
+    assert(std::abs(a.confidence - b.confidence) < 1e-12);
+  }
+
+  // Reordered columns + full 3x3 covariance via header mapping.
+  const std::string v2_full =
+    "landmark_id,stamp,class_id,x,y,z,cov_xx,cov_xy,cov_xz,cov_yx,cov_yy,cov_yz,cov_zx,cov_zy,cov_zz,confidence,schema_version\n"
+    "9,2.0,fiducial,1.0,2.0,3.0,0.1,0.01,0.02,0.01,0.2,0.03,0.02,0.03,0.3,0.95,2\n";
+  std::istringstream v2_full_input(v2_full);
+  const auto loaded_full = glil::load_perception_observations_csv(v2_full_input);
+  assert(loaded_full.errors.empty());
+  assert(loaded_full.observations.size() == 1);
+  const auto& full_obs = loaded_full.observations.front();
+  assert(full_obs.landmark_id == 9);
+  assert(full_obs.class_id == "fiducial");
+  assert(std::abs(full_obs.covariance(0, 1) - 0.01) < 1e-12);
+  assert(std::abs(full_obs.covariance(2, 2) - 0.3) < 1e-12);
+}
+
 void test_cloud_landmark_extractor() {
   const std::vector<gtsam::Point3> world_points = {
     gtsam::Point3(0.10, 0.10, 0.10),
@@ -248,6 +301,7 @@ int main() {
   test_noise_from_observation();
   test_csv_loader_and_builder();
   test_csv_loader_warnings();
+  test_csv_loader_v2_header();
   test_cloud_landmark_extractor();
   test_landmark_optimization();
   return 0;
