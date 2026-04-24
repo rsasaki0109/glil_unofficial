@@ -128,6 +128,7 @@ public:
       std::size_t duplicate_stamp = 0;
       std::size_t class_collision = 0;
       std::size_t degenerate_cov = 0;
+      std::size_t non_pd_cov = 0;
       for (const auto& warning : loaded.warnings) {
         switch (warning.kind) {
           case PerceptionObservationCsvWarning::Kind::DuplicateStampLandmark:
@@ -139,14 +140,18 @@ public:
           case PerceptionObservationCsvWarning::Kind::DegenerateCovariance:
             degenerate_cov++;
             break;
+          case PerceptionObservationCsvWarning::Kind::NonPositiveDefiniteCovariance:
+            non_pd_cov++;
+            break;
         }
       }
       logger_->warn(
-        "perception CSV loader emitted {} warnings: duplicate_stamp_landmark={} landmark_class_collision={} degenerate_covariance={}",
+        "perception CSV loader emitted {} warnings: duplicate_stamp_landmark={} landmark_class_collision={} degenerate_covariance={} non_positive_definite_covariance={}",
         loaded.warnings.size(),
         duplicate_stamp,
         class_collision,
-        degenerate_cov);
+        degenerate_cov,
+        non_pd_cov);
     }
 
     logger_->info(

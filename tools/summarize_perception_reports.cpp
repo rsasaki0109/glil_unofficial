@@ -305,14 +305,15 @@ const std::vector<std::string>& summary_keys() {
     "warnings_duplicate_stamp_landmark",
     "warnings_landmark_class_collision",
     "warnings_degenerate_covariance",
+    "warnings_non_positive_definite_covariance",
   };
   return keys;
 }
 
 void write_markdown(std::ostream& output, const std::vector<ReportSummary>& reports, const Options& options) {
   output << "# Perception Report Summary\n\n";
-  output << "| run | status | injectable | observations | accepted | accepted rate | rejected low confidence | rejected class | unique landmarks | accepted landmarks | matched accepted | accepted match rate | confidence median | factor sigma median | load warnings | warn dup stamp/lid | warn class collision | warn degenerate cov | source CSV |\n";
-  output << "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|\n";
+  output << "| run | status | injectable | observations | accepted | accepted rate | rejected low confidence | rejected class | unique landmarks | accepted landmarks | matched accepted | accepted match rate | confidence median | factor sigma median | load warnings | warn dup stamp/lid | warn class collision | warn degenerate cov | warn non-PD cov | source CSV |\n";
+  output << "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|\n";
   for (const auto& report : reports) {
     output << "| `" << markdown_escape(report.label) << "` "
            << "| " << readiness_status(report, options) << ' '
@@ -332,6 +333,7 @@ void write_markdown(std::ostream& output, const std::vector<ReportSummary>& repo
            << "| " << markdown_escape(metric(report, "warnings_duplicate_stamp_landmark")) << ' '
            << "| " << markdown_escape(metric(report, "warnings_landmark_class_collision")) << ' '
            << "| " << markdown_escape(metric(report, "warnings_degenerate_covariance")) << ' '
+           << "| " << markdown_escape(metric(report, "warnings_non_positive_definite_covariance")) << ' '
            << "| `" << markdown_escape(metric(report, "csv_path")) << "` |\n";
   }
   output << "\nStatus is PASS when `injectable=yes`, accepted observations meet `--min-accepted`, and the accepted match rate meets `--min-accepted-match-rate` when that metric is present.\n";

@@ -74,6 +74,7 @@ struct WarningStats {
   std::size_t duplicate_stamp_landmark = 0;
   std::size_t landmark_class_collision = 0;
   std::size_t degenerate_covariance = 0;
+  std::size_t non_positive_definite_covariance = 0;
 };
 
 struct ReportStats {
@@ -452,6 +453,9 @@ ReportStats build_report(const Options& options, const glil::PerceptionObservati
       case glil::PerceptionObservationCsvWarning::Kind::DegenerateCovariance:
         stats.warnings.degenerate_covariance++;
         break;
+      case glil::PerceptionObservationCsvWarning::Kind::NonPositiveDefiniteCovariance:
+        stats.warnings.non_positive_definite_covariance++;
+        break;
     }
   }
 
@@ -566,6 +570,7 @@ void write_markdown_report(std::ostream& output, const Options& options, const R
   output << "| Warning: duplicate_stamp_landmark | " << stats.warnings.duplicate_stamp_landmark << " |\n";
   output << "| Warning: landmark_class_collision | " << stats.warnings.landmark_class_collision << " |\n";
   output << "| Warning: degenerate_covariance | " << stats.warnings.degenerate_covariance << " |\n";
+  output << "| Warning: non_positive_definite_covariance | " << stats.warnings.non_positive_definite_covariance << " |\n";
   output << "| Accepted observations | " << stats.accepted_observations << " |\n";
   output << "| Accepted rate | " << format_rate(stats.accepted_observations, stats.total_observations) << " |\n";
   output << "| Rejected low confidence | " << stats.rejected_low_confidence << " |\n";
@@ -620,6 +625,7 @@ void write_csv_report(std::ostream& output, const Options& options, const Report
   write_csv_metric(output, "warnings_duplicate_stamp_landmark", std::to_string(stats.warnings.duplicate_stamp_landmark));
   write_csv_metric(output, "warnings_landmark_class_collision", std::to_string(stats.warnings.landmark_class_collision));
   write_csv_metric(output, "warnings_degenerate_covariance", std::to_string(stats.warnings.degenerate_covariance));
+  write_csv_metric(output, "warnings_non_positive_definite_covariance", std::to_string(stats.warnings.non_positive_definite_covariance));
   write_csv_metric(output, "accepted_observations", std::to_string(stats.accepted_observations));
   write_csv_metric(output, "accepted_rate", format_rate(stats.accepted_observations, stats.total_observations));
   write_csv_metric(output, "rejected_low_confidence", std::to_string(stats.rejected_low_confidence));

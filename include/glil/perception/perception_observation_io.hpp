@@ -28,6 +28,7 @@ struct PerceptionObservationCsvWarning {
     DuplicateStampLandmark,
     LandmarkClassCollision,
     DegenerateCovariance,
+    NonPositiveDefiniteCovariance,
   };
   Kind kind = Kind::DuplicateStampLandmark;
   std::size_t observation_index = 0;

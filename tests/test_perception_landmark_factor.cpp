@@ -129,6 +129,7 @@ void test_csv_loader_warnings() {
   int duplicate_stamp = 0;
   int class_collision = 0;
   int degenerate_cov = 0;
+  int non_pd_cov = 0;
   for (const auto& warning : loaded.warnings) {
     switch (warning.kind) {
       case glil::PerceptionObservationCsvWarning::Kind::DuplicateStampLandmark:
@@ -147,11 +148,50 @@ void test_csv_loader_warnings() {
         assert(warning.observation_index == 3);
         assert(warning.landmark_id == 8);
         break;
+      case glil::PerceptionObservationCsvWarning::Kind::NonPositiveDefiniteCovariance:
+        non_pd_cov++;
+        break;
     }
   }
   assert(duplicate_stamp == 1);
   assert(class_collision == 1);
   assert(degenerate_cov == 1);
+  assert(non_pd_cov == 0);
+
+  // Asymmetric full 3x3 covariance should trigger non_pd_cov warning.
+  const std::string asymmetric_csv =
+    "stamp,class_id,landmark_id,x,y,z,cov_xx,cov_xy,cov_xz,cov_yx,cov_yy,cov_yz,cov_zx,cov_zy,cov_zz,confidence\n"
+    "3.0,pole,10,1.0,0.0,0.0,0.1,0.05,0.0,-0.05,0.1,0.0,0.0,0.0,0.1,0.9\n";
+  std::istringstream asymmetric_input(asymmetric_csv);
+  const auto asymmetric = glil::load_perception_observations_csv(asymmetric_input);
+  assert(asymmetric.errors.empty());
+  assert(asymmetric.observations.size() == 1);
+  int asymmetric_warnings = 0;
+  for (const auto& warning : asymmetric.warnings) {
+    if (warning.kind == glil::PerceptionObservationCsvWarning::Kind::NonPositiveDefiniteCovariance) {
+      asymmetric_warnings++;
+      assert(warning.observation_index == 0);
+      assert(warning.landmark_id == 10);
+    }
+  }
+  assert(asymmetric_warnings == 1);
+
+  // Symmetric but indefinite covariance should also trigger the warning.
+  const std::string indefinite_csv =
+    "stamp,class_id,landmark_id,x,y,z,cov_xx,cov_xy,cov_xz,cov_yx,cov_yy,cov_yz,cov_zx,cov_zy,cov_zz,confidence\n"
+    "4.0,pole,11,1.0,0.0,0.0,0.1,0.5,0.0,0.5,0.1,0.0,0.0,0.0,0.1,0.9\n";
+  std::istringstream indefinite_input(indefinite_csv);
+  const auto indefinite = glil::load_perception_observations_csv(indefinite_input);
+  assert(indefinite.errors.empty());
+  assert(indefinite.observations.size() == 1);
+  int indefinite_warnings = 0;
+  for (const auto& warning : indefinite.warnings) {
+    if (warning.kind == glil::PerceptionObservationCsvWarning::Kind::NonPositiveDefiniteCovariance) {
+      indefinite_warnings++;
+      assert(warning.landmark_id == 11);
+    }
+  }
+  assert(indefinite_warnings == 1);
 }
 
 void test_csv_loader_v2_header() {

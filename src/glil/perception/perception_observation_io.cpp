@@ -12,6 +12,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include <Eigen/Dense>
+
 namespace glil {
 namespace {
 
@@ -380,6 +382,38 @@ PerceptionObservationCsvLoadResult load_perception_observations_csv(std::istream
         obs.landmark_id,
         obs.class_id,
         "covariance diagonal has zero, negative, or non-finite values",
+      });
+      continue;
+    }
+
+    constexpr double kSymmetryTol = 1e-9;
+    bool symmetric = true;
+    for (int row = 0; row < 3 && symmetric; ++row) {
+      for (int col = row + 1; col < 3; ++col) {
+        if (std::abs(obs.covariance(row, col) - obs.covariance(col, row)) > kSymmetryTol) {
+          symmetric = false;
+          break;
+        }
+      }
+    }
+
+    bool non_pd = !symmetric;
+    if (symmetric) {
+      const Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(obs.covariance);
+      if (solver.info() != Eigen::Success || solver.eigenvalues().minCoeff() <= 0.0) {
+        non_pd = true;
+      }
+    }
+
+    if (non_pd) {
+      result.warnings.push_back({
+        PerceptionObservationCsvWarning::Kind::NonPositiveDefiniteCovariance,
+        i,
+        obs.landmark_id,
+        obs.class_id,
+        symmetric
+          ? "covariance is symmetric but not positive-definite"
+          : "covariance is not symmetric; full 3x3 entries disagree across the diagonal",
       });
     }
   }
