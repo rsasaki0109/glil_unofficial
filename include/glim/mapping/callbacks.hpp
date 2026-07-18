@@ -118,6 +118,18 @@ struct GlobalMappingCallbacks {
   static CallbackSlot<void(const std::vector<SubMap::Ptr>& submaps)> on_update_submaps;
 
   /**
+   * @brief External map-to-odometry transform update callback
+   * @param stamp       Timestamp associated with the correction
+   * @param T_map_odom  Transform from the odometry frame to an external map frame
+   * @param reset       Reset the consumer immediately instead of transitioning from
+   *                    its current correction
+   * @note  This callback lets localization extensions correct published map-frame
+   *        poses without inserting factors into GLIM's global mapping graph. GLIM's
+   *        odometry estimate remains unchanged.
+   */
+  static CallbackSlot<void(double stamp, const Eigen::Isometry3d& T_map_odom, bool reset)> on_external_map_odom_update;
+
+  /**
    * @brief Global optimization callback (just before optimization)
    * @param isam2        iSAM2 Optimizer
    * @param new_factors  New factors to be inserted into the factor graph
