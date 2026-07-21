@@ -17,6 +17,7 @@
 #include <glim/common/cloud_deskewing.hpp>
 #include <glim/common/cloud_covariance_estimation.hpp>
 #include <glim/odometry/initial_state_estimation.hpp>
+#include <glim/odometry/imu_prediction_guard.hpp>
 #include <glim/odometry/loose_initial_state_estimation.hpp>
 #include <glim/odometry/callbacks.hpp>
 
@@ -62,6 +63,8 @@ OdometryEstimationIMUParams::OdometryEstimationIMUParams() {
   use_isam2_qr = config.param<bool>("odometry_estimation", "use_isam2_qr", false);
   isam2_relinearize_skip = config.param<int>("odometry_estimation", "isam2_relinearize_skip", 1);
   isam2_relinearize_thresh = config.param<double>("odometry_estimation", "isam2_relinearize_thresh", 0.1);
+  max_imu_prediction_translation_m =
+    config.param<double>("odometry_estimation", "max_imu_prediction_translation_m", 0.0);
 
   compute_covs = config.param<bool>("odometry_estimation", "compute_covs", false);
 
@@ -265,6 +268,22 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
     predicted_nav_world_imu = gtsam::NavState(predicted_T_world_imu, predicted_v_world_imu);
   }
 
+  const bool discontinuous_imu_prediction = imuPredictionDiscontinuous(
+    Eigen::Isometry3d(last_T_world_imu.matrix()),
+    Eigen::Isometry3d(predicted_T_world_imu.matrix()), predicted_v_world_imu,
+    params->max_imu_prediction_translation_m);
+  if (discontinuous_imu_prediction) {
+    const double translation =
+      (last_T_world_imu.between(predicted_T_world_imu)).translation().norm();
+    logger->warn(
+      "rejecting discontinuous IMU prediction at {:.6f}: delta={:.3f}m limit={:.3f}m; "
+      "starting a pose-continuous odometry segment",
+      raw_frame->stamp, translation, params->max_imu_prediction_translation_m);
+    predicted_T_world_imu = last_T_world_imu;
+    predicted_v_world_imu.setZero();
+    predicted_nav_world_imu = gtsam::NavState(predicted_T_world_imu, predicted_v_world_imu);
+  }
+
   new_stamps[X(current)] = raw_frame->stamp;
   new_stamps[V(current)] = raw_frame->stamp;
   new_stamps[B(current)] = raw_frame->stamp;
@@ -282,7 +301,15 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
 
   // Create IMU factor
   gtsam::ImuFactor::shared_ptr imu_factor;
-  if (num_imu_integrated >= 2) {
+  if (discontinuous_imu_prediction) {
+    gtsam::Vector6 sigmas;
+    sigmas << 0.5, 0.5, 0.5, 5.0, 5.0, 5.0;
+    new_factors.add(gtsam::BetweenFactor<gtsam::Pose3>(
+      X(last), X(current), gtsam::Pose3(), gtsam::noiseModel::Diagonal::Sigmas(sigmas)));
+    new_factors.add(gtsam::BetweenFactor<gtsam::Vector3>(
+      V(last), V(current), -last_v_world_imu,
+      gtsam::noiseModel::Isotropic::Sigma(3, 1.0)));
+  } else if (num_imu_integrated >= 2) {
     imu_factor = gtsam::make_shared<gtsam::ImuFactor>(X(last), V(last), X(current), V(current), B(last), imu_integration->integrated_measurements());
     new_factors.add(imu_factor);
   } else {

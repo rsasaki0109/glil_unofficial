@@ -1,10 +1,12 @@
 #include <glim/odometry/exact_quadratic_coreset.hpp>
+#include <glim/odometry/imu_prediction_guard.hpp>
 #include <glim/odometry/tightly_coupled_window.hpp>
 
 #include <Eigen/Core>
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <random>
 
 namespace {
@@ -63,6 +65,22 @@ bool verify_exact_sum(const int dimensions, const int point_count, const int tar
 
 int main()
 {
+  const Eigen::Isometry3d identity = Eigen::Isometry3d::Identity();
+  Eigen::Isometry3d far_prediction = identity;
+  far_prediction.translation().x() = 100.0;
+  if (glim::imuPredictionDiscontinuous(identity, identity, Eigen::Vector3d::Zero(), 20.0) ||
+      !glim::imuPredictionDiscontinuous(
+        identity, far_prediction, Eigen::Vector3d::Zero(), 20.0)) {
+    std::cerr << "IMU prediction discontinuity guard failed\n";
+    return 1;
+  }
+  Eigen::Isometry3d nonfinite_prediction = identity;
+  nonfinite_prediction.translation().x() = std::numeric_limits<double>::quiet_NaN();
+  if (!glim::imuPredictionDiscontinuous(
+        identity, nonfinite_prediction, Eigen::Vector3d::Zero(), 0.0)) {
+    std::cerr << "non-finite IMU prediction guard failed\n";
+    return 1;
+  }
   if (glim::tightlyCoupledFirstTarget(10, 3, 11) != 7 ||
       glim::tightlyCoupledFirstTarget(10, 3, 2) != 9 ||
       glim::tightlyCoupledFirstTarget(176, 3, 2) != 175 ||
