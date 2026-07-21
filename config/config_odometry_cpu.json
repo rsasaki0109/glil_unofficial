@@ -2,6 +2,7 @@
   /*** Keyframe-based VGICP odometry estimation ***
   // smoother_lag                : Fixed-lag smoothing window size [sec]
   // use_isam2_dogleg            : Use the dogleg optimizer as the backend of ISAM2 that is slow but more robust
+  // use_isam2_qr                : Use numerically robust QR factorization instead of Cholesky
   // isam2_relinearize_skip      :
   // isam2_relinearize_thresh    :
   */
@@ -14,6 +15,7 @@
     // Optimizer params
     "smoother_lag": 5.0,
     "use_isam2_dogleg": false,
+    "use_isam2_qr": false,
     "isam2_relinearize_skip": 1,
     "isam2_relinearize_thresh": 0.1,
     "fix_imu_bias": false,
