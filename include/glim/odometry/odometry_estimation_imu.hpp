@@ -58,6 +58,7 @@ public:
   bool use_isam2_qr;
   double isam2_relinearize_skip;
   double isam2_relinearize_thresh;
+  double max_imu_prediction_translation_m;
 
   // Marginal computation params
   bool compute_covs;  // Whether to compute marginal covariances of the latest frame (X(i), V(i), B(i))
