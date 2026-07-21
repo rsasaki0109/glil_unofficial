@@ -1,4 +1,5 @@
 #include <glim/odometry/exact_quadratic_coreset.hpp>
+#include <glim/odometry/tightly_coupled_window.hpp>
 
 #include <Eigen/Core>
 
@@ -49,6 +50,14 @@ bool verify_exact_sum(const int dimensions, const int point_count, const int tar
 
 int main()
 {
+  if (glim::tightlyCoupledFirstTarget(10, 3, 11) != 7 ||
+      glim::tightlyCoupledFirstTarget(10, 3, 2) != 9 ||
+      glim::tightlyCoupledFirstTarget(176, 3, 2) != 175 ||
+      glim::tightlyCoupledFirstTarget(0, 3, 1) != 0) {
+    std::cerr << "tightly coupled resident-window policy failed\n";
+    return 1;
+  }
+
   // A six-DoF relative-pose quadratic has 21 independent Hessian entries,
   // six gradient entries, and one scalar error entry.
   if (!verify_exact_sum(28, 6500, 32)) {

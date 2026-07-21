@@ -21,6 +21,7 @@
 
 #include <glim/odometry/callbacks.hpp>
 #include <glim/odometry/integrated_gicp_factor_coreset.hpp>
+#include <glim/odometry/tightly_coupled_window.hpp>
 
 #ifdef GTSAM_USE_TBB
 #include <tbb/task_arena.h>
@@ -94,7 +95,8 @@ gtsam::NonlinearFactorGraph OdometryEstimationCPU::create_factors(const int curr
 
   if (params->use_tightly_coupled_coreset) {
     gtsam::NonlinearFactorGraph factors;
-    const int first_target = std::max(0, current - params->full_connection_window_size);
+    const int first_target = tightlyCoupledFirstTarget(
+      current, params->full_connection_window_size, frames.inner_size());
     for (int target = first_target; target < current; ++target) {
       auto factor = gtsam::make_shared<glim::IntegratedGICPFactorCoreset>(
         X(target), X(current), frames[target]->frame, frames[current]->frame);
