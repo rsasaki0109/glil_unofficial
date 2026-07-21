@@ -161,18 +161,23 @@ inline ExactCoreset extractCoreset(const Eigen::MatrixXd& points, int target_siz
     const int m = static_cast<int>(indices.size());
 
     if (m <= effective_clusters) {
-      // Direct pruning pass on the remaining points.
+      // Direct weighted pruning pass on the remaining points.  Keep the
+      // contribution vectors and their weights separate: pruning the
+      // already-weighted vectors with unit weights preserves the aggregate,
+      // but does not preserve total mass and can create unbounded weights on
+      // nearly degenerate inputs.
       Eigen::MatrixXd pts(dim, m);
+      Eigen::VectorXd active_weights(m);
       for (int i = 0; i < m; ++i) {
-        pts.col(i) = points.col(indices[i]) * weights[indices[i]];
+        pts.col(i) = points.col(indices[i]);
+        active_weights(i) = weights[indices[i]];
       }
-      Eigen::VectorXd unit = Eigen::VectorXd::Ones(m);
-      const std::vector<int> kept = exact_coreset_detail::caratheodoryPrune(pts, unit);
+      const std::vector<int> kept = exact_coreset_detail::caratheodoryPrune(pts, active_weights);
 
       std::vector<int> next_indices;
       next_indices.reserve(kept.size());
       for (const int i : kept) {
-        weights[indices[i]] *= unit(i);
+        weights[indices[i]] = active_weights(i);
         next_indices.push_back(indices[i]);
       }
       indices.swap(next_indices);
@@ -182,20 +187,27 @@ inline ExactCoreset extractCoreset(const Eigen::MatrixXd& points, int target_siz
     // Fast round: contiguous clusters, prune their weighted sums.
     const int chunk = (m + effective_clusters - 1) / effective_clusters;
     const int cluster_total = (m + chunk - 1) / chunk;
-    Eigen::MatrixXd cluster_sums = Eigen::MatrixXd::Zero(dim, cluster_total);
+    Eigen::MatrixXd cluster_means = Eigen::MatrixXd::Zero(dim, cluster_total);
+    Eigen::VectorXd cluster_weights = Eigen::VectorXd::Zero(cluster_total);
     for (int i = 0; i < m; ++i) {
-      cluster_sums.col(i / chunk) += weights[indices[i]] * points.col(indices[i]);
+      const int cluster = i / chunk;
+      cluster_means.col(cluster) += weights[indices[i]] * points.col(indices[i]);
+      cluster_weights(cluster) += weights[indices[i]];
     }
-    Eigen::VectorXd cluster_weights = Eigen::VectorXd::Ones(cluster_total);
-    const std::vector<int> kept_clusters = exact_coreset_detail::caratheodoryPrune(cluster_sums, cluster_weights);
+    const Eigen::VectorXd original_cluster_weights = cluster_weights;
+    for (int cluster = 0; cluster < cluster_total; ++cluster) {
+      cluster_means.col(cluster) /= cluster_weights(cluster);
+    }
+    const std::vector<int> kept_clusters = exact_coreset_detail::caratheodoryPrune(cluster_means, cluster_weights);
 
     std::vector<int> next_indices;
     next_indices.reserve(kept_clusters.size() * chunk);
     for (const int c : kept_clusters) {
       const int begin = c * chunk;
       const int end = std::min(begin + chunk, m);
+      const double scale = cluster_weights(c) / original_cluster_weights(c);
       for (int i = begin; i < end; ++i) {
-        weights[indices[i]] *= cluster_weights(c);
+        weights[indices[i]] *= scale;
         next_indices.push_back(indices[i]);
       }
     }
