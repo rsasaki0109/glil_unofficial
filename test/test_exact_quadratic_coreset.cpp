@@ -43,6 +43,19 @@ bool verify_exact_sum(const int dimensions, const int point_count, const int tar
     return false;
   }
 
+  double weight_sum = 0.0;
+  double max_weight = 0.0;
+  for (const double weight : coreset.weights) {
+    weight_sum += weight;
+    max_weight = std::max(max_weight, weight);
+  }
+  if (std::abs(weight_sum - point_count) > 1e-9 * point_count ||
+      max_weight > point_count * (1.0 + 1e-12)) {
+    std::cerr << "invalid coreset mass: sum=" << weight_sum
+              << " max=" << max_weight << " point_count=" << point_count << '\n';
+    return false;
+  }
+
   return true;
 }
 
@@ -64,6 +77,11 @@ int main()
     return 1;
   }
   if (!verify_exact_sum(28, 100, 1)) {
+    return 1;
+  }
+  // Exercise uneven fast-Caratheodory clusters.  This used to preserve the
+  // vector sum while allowing the positive weight mass to drift and grow.
+  if (!verify_exact_sum(3, 6503, 5)) {
     return 1;
   }
   std::cout << "exact quadratic coreset tests passed\n";
