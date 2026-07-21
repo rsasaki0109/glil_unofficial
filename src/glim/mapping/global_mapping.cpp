@@ -489,7 +489,10 @@ void GlobalMapping::update_submaps() {
   }
 }
 
-gtsam_points::ISAM2ResultExt GlobalMapping::update_isam2(const gtsam::NonlinearFactorGraph& new_factors, const gtsam::Values& new_values) {
+gtsam_points::ISAM2ResultExt GlobalMapping::update_isam2(
+  const gtsam::NonlinearFactorGraph& new_factors,
+  const gtsam::Values& new_values,
+  int recovery_attempt) {
   gtsam_points::ISAM2ResultExt result;
 
   gtsam::Key indeterminant_nearby_key = 0;
@@ -512,6 +515,12 @@ gtsam_points::ISAM2ResultExt GlobalMapping::update_isam2(const gtsam::NonlinearF
   }
 
   if (indeterminant_nearby_key != 0) {
+    if (recovery_attempt >= 1) {
+      logger->error(
+        "global map optimization remained indeterminant after the bounded "
+        "damping/QR recovery; stop retrying this update");
+      return result;
+    }
     const gtsam::Symbol symbol(indeterminant_nearby_key);
     if (symbol.chr() == 'v' || symbol.chr() == 'b' || symbol.chr() == 'e') {
       indeterminant_nearby_key = X(symbol.index() / 2);
@@ -527,6 +536,13 @@ gtsam_points::ISAM2ResultExt GlobalMapping::update_isam2(const gtsam::NonlinearF
       gtsam::ISAM2DoglegParams dogleg_params;
       isam2_params.setOptimizationParams(dogleg_params);
     }
+    // The first Cholesky failure is commonly numerical rather than a true
+    // gauge ambiguity.  Retry the reconstructed graph once with QR, which is
+    // slower but substantially more stable for mixed LiDAR/IMU scales.  The
+    // recovery_attempt guard above is essential: the old unbounded recursion
+    // appended the same damping factor forever when reconstruction could not
+    // repair a kidnapped/disconnected map.
+    isam2_params.factorization = gtsam::ISAM2Params::QR;
     isam2_params.relinearizeSkip = params.isam2_relinearize_skip;
     isam2_params.setRelinearizeThreshold(params.isam2_relinearize_thresh);
 
@@ -537,7 +553,7 @@ gtsam_points::ISAM2ResultExt GlobalMapping::update_isam2(const gtsam::NonlinearF
     }
 
     logger->warn("reset isam2");
-    return update_isam2(factors, values);
+    return update_isam2(factors, values, recovery_attempt + 1);
   }
 
   return result;
