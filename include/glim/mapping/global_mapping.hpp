@@ -84,7 +84,10 @@ private:
   std::shared_ptr<gtsam::NonlinearFactorGraph> create_matching_cost_factors(int current) const;
 
   void update_submaps();
-  gtsam_points::ISAM2ResultExt update_isam2(const gtsam::NonlinearFactorGraph& new_factors, const gtsam::Values& new_values);
+  gtsam_points::ISAM2ResultExt update_isam2(
+    const gtsam::NonlinearFactorGraph& new_factors,
+    const gtsam::Values& new_values,
+    int recovery_attempt = 0);
 
   void recover_graph() override;
   std::pair<gtsam::NonlinearFactorGraph, gtsam::Values> recover_graph(const gtsam::NonlinearFactorGraph& graph, const gtsam::Values& values, int start_from_frame_id) const;
