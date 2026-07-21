@@ -20,6 +20,7 @@
 #include <glim/common/cloud_covariance_estimation.hpp>
 
 #include <glim/odometry/callbacks.hpp>
+#include <glim/odometry/integrated_gicp_factor_coreset.hpp>
 
 #ifdef GTSAM_USE_TBB
 #include <tbb/task_arena.h>
@@ -48,6 +49,13 @@ OdometryEstimationCPUParams::OdometryEstimationCPUParams() : OdometryEstimationI
   vgicp_resolution = config.param<double>("odometry_estimation", "vgicp_resolution", 0.2);
   vgicp_voxelmap_levels = config.param<int>("odometry_estimation", "vgicp_voxelmap_levels", 2);
   vgicp_voxelmap_scaling_factor = config.param<double>("odometry_estimation", "vgicp_voxelmap_scaling_factor", 2.0);
+
+  use_gicp_coreset = config.param<bool>("odometry_estimation", "use_gicp_coreset", false);
+  coreset_size = config.param<int>("odometry_estimation", "coreset_size", 32);
+  coreset_reuse_tolerance_trans = config.param<double>("odometry_estimation", "coreset_reuse_tolerance_trans", 0.1);
+  coreset_reuse_tolerance_rot = config.param<double>("odometry_estimation", "coreset_reuse_tolerance_rot", 0.0175);
+  use_tightly_coupled_coreset = config.param<bool>("odometry_estimation", "use_tightly_coupled_coreset", false);
+  full_connection_window_size = config.param<int>("odometry_estimation", "full_connection_window_size", 3);
 }
 
 OdometryEstimationCPUParams::~OdometryEstimationCPUParams() {}
@@ -84,6 +92,28 @@ gtsam::NonlinearFactorGraph OdometryEstimationCPU::create_factors(const int curr
     return gtsam::NonlinearFactorGraph();
   }
 
+  if (params->use_tightly_coupled_coreset) {
+    gtsam::NonlinearFactorGraph factors;
+    const int first_target = std::max(0, current - params->full_connection_window_size);
+    for (int target = first_target; target < current; ++target) {
+      auto factor = gtsam::make_shared<glim::IntegratedGICPFactorCoreset>(
+        X(target), X(current), frames[target]->frame, frames[current]->frame);
+      factor->set_max_correspondence_distance(params->ivox_resolution * 2.0);
+      factor->set_num_threads(params->num_threads);
+      factor->set_coreset_size(params->coreset_size);
+      factor->set_coreset_reuse_tolerance(
+        params->coreset_reuse_tolerance_rot,
+        params->coreset_reuse_tolerance_trans);
+      factors.add(factor);
+    }
+
+    // These nonlinear registration factors are optimized together with the
+    // preintegrated IMU factor that OdometryEstimationIMU inserted for the
+    // same X(current)/V(current)/B(current) update. Do not pre-solve a pose or
+    // summarize registration as a Between/Prior factor in this mode.
+    return factors;
+  }
+
   const Eigen::Isometry3d pred_T_last_current = frames[last]->T_world_imu.inverse() * frames[current]->T_world_imu;
   const Eigen::Isometry3d pred_T_target_imu = last_T_target_imu * pred_T_last_current;
 
@@ -93,15 +123,29 @@ gtsam::NonlinearFactorGraph OdometryEstimationCPU::create_factors(const int curr
   // Create frame-to-model matching factor
   gtsam::NonlinearFactorGraph matching_cost_factors;
   if (params->registration_type == "GICP") {
-    auto gicp_factor = gtsam::make_shared<gtsam_points::IntegratedGICPFactor_<gtsam_points::iVox, gtsam_points::PointCloud>>(
-      gtsam::Pose3(),
-      X(current),
-      target_ivox,
-      frames[current]->frame,
-      target_ivox);
-    gicp_factor->set_max_correspondence_distance(params->ivox_resolution * 2.0);
-    gicp_factor->set_num_threads(params->num_threads);
-    matching_cost_factors.add(gicp_factor);
+    if (params->use_gicp_coreset) {
+      auto gicp_factor = gtsam::make_shared<glim::IntegratedGICPFactorCoreset_<gtsam_points::iVox, gtsam_points::PointCloud>>(
+        gtsam::Pose3(),
+        X(current),
+        target_ivox,
+        frames[current]->frame,
+        target_ivox);
+      gicp_factor->set_max_correspondence_distance(params->ivox_resolution * 2.0);
+      gicp_factor->set_num_threads(params->num_threads);
+      gicp_factor->set_coreset_size(params->coreset_size);
+      gicp_factor->set_coreset_reuse_tolerance(params->coreset_reuse_tolerance_rot, params->coreset_reuse_tolerance_trans);
+      matching_cost_factors.add(gicp_factor);
+    } else {
+      auto gicp_factor = gtsam::make_shared<gtsam_points::IntegratedGICPFactor_<gtsam_points::iVox, gtsam_points::PointCloud>>(
+        gtsam::Pose3(),
+        X(current),
+        target_ivox,
+        frames[current]->frame,
+        target_ivox);
+      gicp_factor->set_max_correspondence_distance(params->ivox_resolution * 2.0);
+      gicp_factor->set_num_threads(params->num_threads);
+      matching_cost_factors.add(gicp_factor);
+    }
   } else if (params->registration_type == "VGICP") {
     for (const auto& voxelmap : target_voxelmaps) {
       auto vgicp_factor = gtsam::make_shared<gtsam_points::IntegratedVGICPFactor>(gtsam::Pose3(), X(current), voxelmap, frames[current]->frame);
