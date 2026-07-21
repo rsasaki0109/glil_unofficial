@@ -14,6 +14,7 @@ option(BUILD_WITH_CUDA_MULTIARCH "Build with GPU cross-platform support" OFF)
 option(BUILD_WITH_VIEWER "Build with visualizer" ON)
 option(BUILD_WITH_MARCH_NATIVE "Build with -march=native" OFF)
 option(BUILD_WITH_OPENCV "Build with OpenCV to support camera images" ON)
+include(CTest)
 
 if(BUILD_WITH_MARCH_NATIVE)
   add_definitions(-march=native)
@@ -119,6 +120,15 @@ if(BUILD_WITH_OPENCV)
   target_compile_definitions(glim PUBLIC GLIM_USE_OPENCV)
 endif()
 list(APPEND glim_LIBRARIES glim)
+
+if(BUILD_TESTING)
+  add_executable(test_exact_quadratic_coreset
+    test/test_exact_quadratic_coreset.cpp)
+  target_include_directories(test_exact_quadratic_coreset PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(test_exact_quadratic_coreset Eigen3::Eigen)
+  add_test(NAME exact_quadratic_coreset COMMAND test_exact_quadratic_coreset)
+endif()
 
 # Create shared libraries for estimation modules
 list(APPEND module_srcs

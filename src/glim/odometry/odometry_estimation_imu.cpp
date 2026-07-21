@@ -220,7 +220,9 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
     new_factors.emplace_shared<gtsam_points::LinearDampingFactor>(B(0), 6, 1e6);
     new_factors.add(create_factors(current, nullptr, new_values));
 
+    Callbacks::on_smoother_update(*smoother, new_factors, new_values, new_stamps);
     update_smoother(new_factors, new_values, new_stamps);
+    Callbacks::on_smoother_update_finish(*smoother);
     update_frames(current, new_factors);
 
     return frames.back();

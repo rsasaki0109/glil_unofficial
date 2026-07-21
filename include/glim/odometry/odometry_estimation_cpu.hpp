@@ -36,6 +36,13 @@ public:
   double vgicp_resolution;               ///< Voxelmap resolution (for VGICP)
   int vgicp_voxelmap_levels;             ///< Multi-resolution voxelmap levels (for VGICP)
   double vgicp_voxelmap_scaling_factor;  ///< Multi-resolution voxelmap scaling factor (for VGICP)
+
+  bool use_gicp_coreset;                     ///< Use exact-coreset GICP linearization (ICRA2025, arXiv:2505.01017) (for GICP)
+  int coreset_size;                          ///< Target size of the exact coreset (for GICP, if use_gicp_coreset)
+  double coreset_reuse_tolerance_trans;      ///< Coreset reuse translation tolerance [m] (for GICP, if use_gicp_coreset)
+  double coreset_reuse_tolerance_rot;        ///< Coreset reuse rotation tolerance [rad] (for GICP, if use_gicp_coreset)
+  bool use_tightly_coupled_coreset;          ///< Insert binary GICP factors directly into the fixed-lag graph
+  int full_connection_window_size;           ///< Number of preceding frames connected to the latest frame
 };
 
 /**
