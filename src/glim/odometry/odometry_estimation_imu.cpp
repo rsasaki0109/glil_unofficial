@@ -59,6 +59,7 @@ OdometryEstimationIMUParams::OdometryEstimationIMUParams() {
 
   smoother_lag = config.param<double>("odometry_estimation", "smoother_lag", 5.0);
   use_isam2_dogleg = config.param<bool>("odometry_estimation", "use_isam2_dogleg", false);
+  use_isam2_qr = config.param<bool>("odometry_estimation", "use_isam2_qr", false);
   isam2_relinearize_skip = config.param<int>("odometry_estimation", "isam2_relinearize_skip", 1);
   isam2_relinearize_thresh = config.param<double>("odometry_estimation", "isam2_relinearize_thresh", 0.1);
 
@@ -99,6 +100,12 @@ OdometryEstimationIMU::OdometryEstimationIMU(std::unique_ptr<OdometryEstimationI
   gtsam::ISAM2Params isam2_params;
   if (params->use_isam2_dogleg) {
     isam2_params.setOptimizationParams(gtsam::ISAM2DoglegParams());
+  }
+  if (params->use_isam2_qr) {
+    // QR is slower than Cholesky but remains stable for the strongly mixed
+    // LiDAR/IMU scales that can occur after a discontinuous kidnap event.  It
+    // is opt-in so ordinary odometry keeps the fast default.
+    isam2_params.factorization = gtsam::ISAM2Params::QR;
   }
   isam2_params.findUnusedFactorSlots = true;
   isam2_params.relinearizeSkip = params->isam2_relinearize_skip;

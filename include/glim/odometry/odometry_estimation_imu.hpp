@@ -55,6 +55,7 @@ public:
   // Optimization params
   double smoother_lag;
   bool use_isam2_dogleg;
+  bool use_isam2_qr;
   double isam2_relinearize_skip;
   double isam2_relinearize_thresh;
 
