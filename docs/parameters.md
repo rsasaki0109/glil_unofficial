@@ -43,6 +43,22 @@
     - *"VGICP"* uses voxelized GICP scan matching that is faster but requires tuning **vgicp_resolution** parameter for good estimation in indoor environments.
         - **vgicp_resolution** (default 0.5 m) : Resolution of VGICP voxels used for VGICP scan matching. Use a small value for indoor environments (e.g., 0.25 ~ 0.5 m) and a large value for outdoor environments (0.5 ~ 2.0 m).
 
+- **use_gicp_coreset** (default false) : Use deferred exact-coreset
+  linearization for CPU GICP. Nonlinear trial-step error evaluation still uses
+  the full point set.
+    - **coreset_size** (default 32) : Requested weighted subset size. The
+      implementation retains at least the 29 points required to preserve the
+      28 independent entries of a six-DoF quadratic error exactly.
+    - **coreset_reuse_tolerance_trans** (default 0.1 m) : Maximum translation
+      from the sampling point before the cached coreset is invalidated.
+    - **coreset_reuse_tolerance_rot** (default 0.0175 rad) : Maximum rotation
+      from the sampling point before invalidation.
+- **use_tightly_coupled_coreset** (default false) : In GICP mode, insert
+  binary exact-coreset scan factors directly between active frame poses. These
+  factors are optimized in the same fixed-lag update as IMU preintegration.
+    - **full_connection_window_size** (default 3) : Number of preceding active
+      frames connected to the newest frame.
+
 ## LiDAR-only Odometry Estimation (config_odometry_ct.json)
 
 - **max_correspondence_distance** (default 2.0 m) : Maximum corresponding distance for scan matching. 

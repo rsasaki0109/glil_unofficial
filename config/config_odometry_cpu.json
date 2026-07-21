@@ -26,6 +26,12 @@
     // GICP + iVox params
     "ivox_resolution": 1.0,
     "ivox_min_dist": 0.1,
+    "use_gicp_coreset": false,
+    "coreset_size": 32,
+    "coreset_reuse_tolerance_trans": 0.1,
+    "coreset_reuse_tolerance_rot": 0.0175,
+    "use_tightly_coupled_coreset": false,
+    "full_connection_window_size": 3,
     // VGICP params
     "vgicp_resolution": 0.5,
     "vgicp_voxelmap_levels": 1,
