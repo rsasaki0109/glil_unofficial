@@ -55,6 +55,12 @@ OdometryEstimationCPUParams::OdometryEstimationCPUParams() : OdometryEstimationI
   coreset_size = config.param<int>("odometry_estimation", "coreset_size", 32);
   coreset_reuse_tolerance_trans = config.param<double>("odometry_estimation", "coreset_reuse_tolerance_trans", 0.1);
   coreset_reuse_tolerance_rot = config.param<double>("odometry_estimation", "coreset_reuse_tolerance_rot", 0.0175);
+  coreset_history_reuse_tolerance_trans = config.param<double>(
+    "odometry_estimation", "coreset_history_reuse_tolerance_trans",
+    coreset_reuse_tolerance_trans);
+  coreset_history_reuse_tolerance_rot = config.param<double>(
+    "odometry_estimation", "coreset_history_reuse_tolerance_rot",
+    coreset_reuse_tolerance_rot);
   use_tightly_coupled_coreset = config.param<bool>("odometry_estimation", "use_tightly_coupled_coreset", false);
   full_connection_window_size = config.param<int>("odometry_estimation", "full_connection_window_size", 3);
 }
@@ -104,8 +110,12 @@ gtsam::NonlinearFactorGraph OdometryEstimationCPU::create_factors(const int curr
       factor->set_num_threads(params->num_threads);
       factor->set_coreset_size(params->coreset_size);
       factor->set_coreset_reuse_tolerance(
-        params->coreset_reuse_tolerance_rot,
-        params->coreset_reuse_tolerance_trans);
+        tightlyCoupledReuseTolerance(
+          current, target, params->coreset_reuse_tolerance_rot,
+          params->coreset_history_reuse_tolerance_rot),
+        tightlyCoupledReuseTolerance(
+          current, target, params->coreset_reuse_tolerance_trans,
+          params->coreset_history_reuse_tolerance_trans));
       factors.add(factor);
     }
 

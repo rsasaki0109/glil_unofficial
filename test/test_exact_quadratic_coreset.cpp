@@ -88,6 +88,12 @@ int main()
     std::cerr << "tightly coupled resident-window policy failed\n";
     return 1;
   }
+  if (glim::tightlyCoupledReuseTolerance(10, 9, 0.10, 0.25) != 0.10 ||
+      glim::tightlyCoupledReuseTolerance(10, 8, 0.10, 0.25) != 0.25 ||
+      glim::tightlyCoupledReuseTolerance(10, 4, 0.10, 0.25) != 0.25) {
+    std::cerr << "tightly coupled age-aware reuse policy failed\n";
+    return 1;
+  }
 
   // A six-DoF relative-pose quadratic has 21 independent Hessian entries,
   // six gradient entries, and one scalar error entry.
