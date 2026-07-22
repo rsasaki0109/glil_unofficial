@@ -41,6 +41,8 @@ public:
   int coreset_size;                          ///< Target size of the exact coreset (for GICP, if use_gicp_coreset)
   double coreset_reuse_tolerance_trans;      ///< Coreset reuse translation tolerance [m] (for GICP, if use_gicp_coreset)
   double coreset_reuse_tolerance_rot;        ///< Coreset reuse rotation tolerance [rad] (for GICP, if use_gicp_coreset)
+  double coreset_history_reuse_tolerance_trans;  ///< Translation tolerance for non-adjacent window factors [m]
+  double coreset_history_reuse_tolerance_rot;    ///< Rotation tolerance for non-adjacent window factors [rad]
   bool use_tightly_coupled_coreset;          ///< Insert binary GICP factors directly into the fixed-lag graph
   int full_connection_window_size;           ///< Number of preceding frames connected to the latest frame
 };

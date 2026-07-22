@@ -19,4 +19,15 @@ inline int tightlyCoupledFirstTarget(
   return std::max(requested, resident);
 }
 
+// The adjacent scan factor carries the highest-frequency motion information,
+// so keep its coreset refresh bound tight. Older factors mainly stabilize the
+// longer range-inertial window and can safely reuse an exact quadratic for a
+// wider nearby-state region, avoiding simultaneous full refreshes of the
+// entire window.
+inline double tightlyCoupledReuseTolerance(
+  int current, int target, double adjacent_tolerance, double history_tolerance)
+{
+  return current - target <= 1 ? adjacent_tolerance : history_tolerance;
+}
+
 }  // namespace glim
